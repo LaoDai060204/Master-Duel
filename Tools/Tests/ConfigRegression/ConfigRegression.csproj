@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ConfigSource Condition="'$(ConfigSource)' == ''">../../../Assets/Scripts/MDPro3/Helper/Config.cs</ConfigSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ConfigSource)" Link="Config.cs" />
+  </ItemGroup>
+</Project>

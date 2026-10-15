@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InputBackend Condition="'$(InputBackend)' == ''">New</InputBackend>
+    <DefineConstants Condition="'$(InputBackend)' == 'New'">$(DefineConstants);ENABLE_INPUT_SYSTEM</DefineConstants>
+    <DefineConstants Condition="'$(InputBackend)' == 'Legacy'">$(DefineConstants);ENABLE_LEGACY_INPUT_MANAGER</DefineConstants>
+    <DefineConstants Condition="'$(InputBackend)' == 'Both'">$(DefineConstants);ENABLE_INPUT_SYSTEM;ENABLE_LEGACY_INPUT_MANAGER</DefineConstants>
+    <ScrollSource Condition="'$(ScrollSource)' == ''">../../../Assets/Scripts/MDPro3/UI/UIExtensions/UIScrollToSelection.cs</ScrollSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(ScrollSource)" Link="UIScrollToSelection.cs" />
+  </ItemGroup>
+</Project>

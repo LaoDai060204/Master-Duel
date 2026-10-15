@@ -8,30 +8,30 @@ using System;
 
 namespace AssetBundleBrowser
 {
-    internal class AssetBundleTree : TreeView
+    internal class AssetBundleTree : TreeView<int>
     { 
         AssetBundleManageTab m_Controller;
         private bool m_ContextOnItem = false;
         List<UnityEngine.Object> m_EmptyObjectList = new List<UnityEngine.Object>();
 
-        internal AssetBundleTree(TreeViewState state, AssetBundleManageTab ctrl) : base(state)
+        internal AssetBundleTree(TreeViewState<int> state, AssetBundleManageTab ctrl) : base(state)
         {
             AssetBundleModel.Model.Rebuild();
             m_Controller = ctrl;
             showBorder = true;
         }
 
-        protected override bool CanMultiSelect(TreeViewItem item)
+        protected override bool CanMultiSelect(TreeViewItem<int> item)
         {
             return true;
         }
 
-        protected override bool CanRename(TreeViewItem item)
+        protected override bool CanRename(TreeViewItem<int> item)
         {
             return item != null && item.displayName.Length > 0;
         }
 
-        protected override bool DoesItemMatchSearch(TreeViewItem item, string search)
+        protected override bool DoesItemMatchSearch(TreeViewItem<int> item, string search)
         {
             var bundleItem = item as AssetBundleModel.BundleTreeItem;
             return bundleItem.bundle.DoesItemMatchSearch(search);
@@ -79,7 +79,7 @@ namespace AssetBundleBrowser
             }
         }
 
-        protected override TreeViewItem BuildRoot()
+        protected override TreeViewItem<int> BuildRoot()
         {
             AssetBundleModel.Model.Refresh();
             var root = AssetBundleModel.Model.CreateBundleTreeView();

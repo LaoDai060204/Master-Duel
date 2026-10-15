@@ -6,7 +6,7 @@ using UnityEditor.IMGUI.Controls;
 
 namespace AssetBundleBrowser.AssetBundleModel
 {
-    internal sealed class AssetTreeItem : TreeViewItem
+    internal sealed class AssetTreeItem : TreeViewItem<int>
     {
         private AssetInfo m_asset;
         internal AssetInfo asset

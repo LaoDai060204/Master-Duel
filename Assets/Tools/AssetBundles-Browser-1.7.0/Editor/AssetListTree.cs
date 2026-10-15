@@ -8,7 +8,7 @@ using System.Linq;
 
 namespace AssetBundleBrowser
 {
-    internal class AssetListTree : TreeView
+    internal class AssetListTree : TreeView<int>
     {
         List<AssetBundleModel.BundleInfo> m_SourceBundles = new List<AssetBundleModel.BundleInfo>();
         AssetBundleManageTab m_Controller;
@@ -82,7 +82,7 @@ namespace AssetBundleBrowser
             SortOption.Message
         };
 
-        internal AssetListTree(TreeViewState state, MultiColumnHeaderState mchs, AssetBundleManageTab ctrl ) : base(state, new MultiColumnHeader(mchs))
+        internal AssetListTree(TreeViewState<int> state, MultiColumnHeaderState mchs, AssetBundleManageTab ctrl ) : base(state, new MultiColumnHeader(mchs))
         {
             m_Controller = ctrl;
             showBorder = true;
@@ -111,7 +111,7 @@ namespace AssetBundleBrowser
         }
 
 
-        protected override IList<TreeViewItem> BuildRows(TreeViewItem root)
+        protected override IList<TreeViewItem<int>> BuildRows(TreeViewItem<int> root)
         {
             var rows = base.BuildRows(root);
             SortIfNeeded(root, rows);
@@ -125,7 +125,7 @@ namespace AssetBundleBrowser
             SetSelection(new List<int>());
             Reload();
         }
-        protected override TreeViewItem BuildRoot()
+        protected override TreeViewItem<int> BuildRoot()
         {
             var root = AssetBundleModel.Model.CreateAssetListTreeView(m_SourceBundles);
             return root;
@@ -208,7 +208,7 @@ namespace AssetBundleBrowser
             m_Controller.SetSelectedItems(selectedAssets);
             Selection.objects = selectedObjects.ToArray();
         }
-        protected override bool CanBeParent(TreeViewItem item)
+        protected override bool CanBeParent(TreeViewItem<int> item)
         {
             return false;
         }
@@ -359,7 +359,7 @@ namespace AssetBundleBrowser
         {
             SortIfNeeded(rootItem, GetRows());
         }
-        void SortIfNeeded(TreeViewItem root, IList<TreeViewItem> rows)
+        void SortIfNeeded(TreeViewItem<int> root, IList<TreeViewItem<int>> rows)
         {
             if (rows.Count <= 1)
                 return;
@@ -389,7 +389,7 @@ namespace AssetBundleBrowser
             }
             var orderedItems = InitialOrder(assetList, sortedColumns);
 
-            rootItem.children = orderedItems.Cast<TreeViewItem>().ToList();
+            rootItem.children = orderedItems.Cast<TreeViewItem<int>>().ToList();
         }
 
         IOrderedEnumerable<AssetBundleModel.AssetTreeItem> InitialOrder(IEnumerable<AssetBundleModel.AssetTreeItem> myTypes, int[] columnList)

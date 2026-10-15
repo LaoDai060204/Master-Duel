@@ -9,6 +9,9 @@ using System.Collections.Generic;
 using UnityEngine.EventSystems;
 using UnityEngine;
 using UnityEngine.UI;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace MDPro3.UI
 {
@@ -70,7 +73,7 @@ namespace MDPro3.UI
         protected GameObject LastCheckedGameObject { get; set; }
         protected GameObject CurrentSelectedGameObject
         {
-            get { return EventSystem.current.currentSelectedGameObject; }
+            get { return CurrentEventSystem != null ? CurrentEventSystem.currentSelectedGameObject : null; }
         }
         protected RectTransform CurrentTargetRectTransform { get; set; }
         protected RectTransform CurrentTargetChildrenRectTransform { get; set; }
@@ -83,7 +86,7 @@ namespace MDPro3.UI
         protected virtual void Awake()
         {
             TargetScrollRect = GetComponent<ScrollRect>();
-            ScrollWindow = TargetScrollRect.GetComponent<RectTransform>();
+            ScrollWindow = GetComponent<RectTransform>();
             if(LayoutListGroup != null)
                 LayoutGroup = LayoutListGroup.GetComponent<LayoutGroup>();
         }
@@ -103,6 +106,14 @@ namespace MDPro3.UI
         //*** METHODS - PRIVATE ***//
         private void UpdateReferences()
         {
+            if (LayoutListGroup == null)
+            {
+                CurrentTargetRectTransform = null;
+                CurrentTargetChildrenRectTransform = null;
+                LastCheckedGameObject = null;
+                return;
+            }
+
             // update current selected rect transform
             if (CurrentSelectedGameObject != LastCheckedGameObject)
             {
@@ -140,13 +151,59 @@ namespace MDPro3.UI
 
             for (int i = 0; i < CancelScrollKeycodes.Count; i++)
             {
-                if (Input.GetKeyDown(CancelScrollKeycodes[i]) == true)
+                if (WasCancelKeyPressed(CancelScrollKeycodes[i]))
                 {
                     IsManualScrollingAvailable = true;
 
                     break;
                 }
             }
+        }
+
+        private static bool WasCancelKeyPressed(KeyCode keyCode)
+        {
+#if ENABLE_LEGACY_INPUT_MANAGER
+            return Input.GetKeyDown(keyCode);
+#elif ENABLE_INPUT_SYSTEM
+            var mouse = Mouse.current;
+            switch (keyCode)
+            {
+                case KeyCode.Mouse0: return mouse != null && mouse.leftButton.wasPressedThisFrame;
+                case KeyCode.Mouse1: return mouse != null && mouse.rightButton.wasPressedThisFrame;
+                case KeyCode.Mouse2: return mouse != null && mouse.middleButton.wasPressedThisFrame;
+                case KeyCode.Mouse3: return mouse != null && mouse.backButton.wasPressedThisFrame;
+                case KeyCode.Mouse4: return mouse != null && mouse.forwardButton.wasPressedThisFrame;
+            }
+
+            var keyboard = Keyboard.current;
+            if (keyboard == null)
+                return false;
+
+            // Keep the existing serialized KeyCode list when using the new Input System.
+            var keyName = keyCode.ToString();
+            if (keyName.StartsWith("Alpha", System.StringComparison.Ordinal))
+                keyName = "Digit" + keyName.Substring(5);
+            else if (keyName.StartsWith("Keypad", System.StringComparison.Ordinal))
+                keyName = "Numpad" + keyName.Substring(6);
+
+            switch (keyCode)
+            {
+                case KeyCode.Return: keyName = "Enter"; break;
+                case KeyCode.LeftControl: keyName = "LeftCtrl"; break;
+                case KeyCode.RightControl: keyName = "RightCtrl"; break;
+                case KeyCode.LeftCommand: keyName = "LeftMeta"; break;
+                case KeyCode.RightCommand: keyName = "RightMeta"; break;
+                case KeyCode.AltGr: keyName = "RightAlt"; break;
+                case KeyCode.Print: keyName = "PrintScreen"; break;
+                case KeyCode.Menu: keyName = "ContextMenu"; break;
+            }
+
+            return System.Enum.TryParse(keyName, true, out Key key) &&
+                key != Key.None && System.Enum.IsDefined(typeof(Key), key) &&
+                keyboard[key].wasPressedThisFrame;
+#else
+            return false;
+#endif
         }
 
         private void ScrollRectToLevelSelection()

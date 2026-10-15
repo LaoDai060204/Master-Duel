@@ -487,7 +487,7 @@ namespace Spine.Unity.Editor {
 			foreach (SkeletonGraphic skeletonGraphic in skeletonGraphicObjects) {
 
 				if (skeletonGraphic.skeletonDataAsset == null) {
-					int skeletonGraphicID = skeletonGraphic.GetInstanceID();
+					EntityId skeletonGraphicID = skeletonGraphic.GetEntityId();
 					if (SpineEditorUtilities.DataReloadHandler.savedSkeletonDataAssetAtSKeletonGraphicID.ContainsKey(skeletonGraphicID)) {
 						string assetPath = SpineEditorUtilities.DataReloadHandler.savedSkeletonDataAssetAtSKeletonGraphicID[skeletonGraphicID];
 						skeletonGraphic.skeletonDataAsset = (SkeletonDataAsset)AssetDatabase.LoadAssetAtPath<SkeletonDataAsset>(assetPath);
@@ -584,15 +584,15 @@ namespace Spine.Unity.Editor {
 						// For some weird reason sometimes Unity loses the internal Object pointer,
 						// and as a result, all comparisons with null returns true.
 						// But the C# wrapper is still alive, so we can "restore" the object
-						// by reloading it from its Instance ID.
+						// by reloading it from its entity ID.
 						AtlasAssetBase[] skeletonDataAtlasAssets = skeletonDataAsset.atlasAssets;
 						if (skeletonDataAtlasAssets != null) {
 							for (int i = 0; i < skeletonDataAtlasAssets.Length; i++) {
 								if (!ReferenceEquals(null, skeletonDataAtlasAssets[i]) &&
 									skeletonDataAtlasAssets[i].Equals(null) &&
-									skeletonDataAtlasAssets[i].GetInstanceID() != 0
+									skeletonDataAtlasAssets[i].GetEntityId() != EntityId.None
 								) {
-									skeletonDataAtlasAssets[i] = EditorUtility.InstanceIDToObject(skeletonDataAtlasAssets[i].GetInstanceID()) as AtlasAssetBase;
+									skeletonDataAtlasAssets[i] = EditorUtility.EntityIdToObject(skeletonDataAtlasAssets[i].GetEntityId()) as AtlasAssetBase;
 								}
 							}
 						}

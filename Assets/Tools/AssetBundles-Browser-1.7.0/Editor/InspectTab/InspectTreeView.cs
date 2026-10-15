@@ -5,7 +5,7 @@ using System.Linq;
 
 namespace AssetBundleBrowser
 {
-	internal class InspectTreeItem : TreeViewItem
+	internal class InspectTreeItem : TreeViewItem<int>
 	{
         internal string bundlePath { get; private set; }
             
@@ -19,19 +19,19 @@ namespace AssetBundleBrowser
         }
     }
 
-	class InspectBundleTree : TreeView
+	class InspectBundleTree : TreeView<int>
 	{
 		AssetBundleInspectTab m_InspectTab;
-		internal InspectBundleTree(TreeViewState s, AssetBundleInspectTab parent) : base(s)
+		internal InspectBundleTree(TreeViewState<int> s, AssetBundleInspectTab parent) : base(s)
 		{
 			m_InspectTab = parent;
 			showBorder = true;
 		}
 
-		protected override TreeViewItem BuildRoot()
+		protected override TreeViewItem<int> BuildRoot()
 		{
-			var root = new TreeViewItem(-1, -1);
-			root.children = new List<TreeViewItem>();
+			var root = new TreeViewItem<int>(-1, -1);
+			root.children = new List<TreeViewItem<int>>();
 			if (m_InspectTab == null)
 				Debug.Log("Unknown problem in AssetBundle Browser Inspect tab.  Restart Browser and try again, or file ticket on github.");
 			else
@@ -45,7 +45,7 @@ namespace AssetBundleBrowser
                     }
                     else
                     {
-                        var folderItem = new TreeViewItem(folder.Key.GetHashCode(), 0, folder.Key);
+                        var folderItem = new TreeViewItem<int>(folder.Key.GetHashCode(), 0, folder.Key);
                         foreach (var path in folder.Value)
                         {
 
@@ -98,7 +98,7 @@ namespace AssetBundleBrowser
                 }
             }
         }
-        private void RemoveItem(TreeViewItem item)
+        private void RemoveItem(TreeViewItem<int> item)
         {
             var inspectItem = item as InspectTreeItem;
             if (inspectItem != null)
@@ -124,7 +124,7 @@ namespace AssetBundleBrowser
             }
 		}
 
-		protected override bool CanMultiSelect(TreeViewItem item)
+		protected override bool CanMultiSelect(TreeViewItem<int> item)
 		{
 			return true;
 		}

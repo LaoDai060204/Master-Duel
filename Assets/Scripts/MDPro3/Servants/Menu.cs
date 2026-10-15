@@ -1,7 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEditor;
 using UnityEngine.Networking;
 using System.IO;
 using MDPro3.Net;
@@ -27,7 +26,7 @@ namespace MDPro3
             showing = true;
             cg.alpha = 1f;
             cg.blocksRaycasts = true;
-            Manager.GetElement<TextMeshProUGUI>("Title").text = "MDPro3 v" + Application.version;
+            Manager.GetElement<TextMeshProUGUI>("Title").text = Application.productName + " v" + Application.version;
 
             UIManager.HideExitButton(0f);
             UIManager.HideLine(0f);
@@ -101,7 +100,9 @@ namespace MDPro3
             {
                 var result = www.downloadHandler.text;
                 var lines = result.Replace("\r", "").Split('\n');
-                if (Application.version != lines[0])
+                if (System.Version.TryParse(lines[0].Trim(), out var latestVersion)
+                    && System.Version.TryParse(Application.version, out var currentVersion)
+                    && latestVersion > currentVersion)
                     MessageManager.Cast(InterString.Get("¼ì²âµ½ÐÂ°æ±¾[[?]]¡£", lines[0]));
             }
             else

@@ -90,7 +90,7 @@ namespace AssetBundleBrowser.AssetBundleModel
             return shouldRepaint;
         }
 
-        internal static void ForceReloadData(TreeView tree)
+        internal static void ForceReloadData(TreeView<int> tree)
         {
             s_InErrorState = false;
             Rebuild();

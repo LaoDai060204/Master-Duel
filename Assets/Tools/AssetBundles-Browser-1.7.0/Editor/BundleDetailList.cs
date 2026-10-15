@@ -5,7 +5,7 @@ using UnityEditor.IMGUI.Controls;
 
 namespace AssetBundleBrowser
 {
-    internal class BundleDetailItem : TreeViewItem
+    internal class BundleDetailItem : TreeViewItem<int>
     {
         internal BundleDetailItem(int id, int depth, string displayName, MessageType type) : base(id, depth, displayName)
         {
@@ -15,7 +15,7 @@ namespace AssetBundleBrowser
         internal MessageType MessageLevel
         { get; set; }
     }
-    internal class BundleDetailList : TreeView
+    internal class BundleDetailList : TreeView<int>
     {
         HashSet<AssetBundleModel.BundleDataInfo> m_Selecteditems;
         Rect m_TotalRect;
@@ -28,7 +28,7 @@ namespace AssetBundleBrowser
         const string k_MessageEmpty = k_MessageHeader + " - None";
 
 
-        internal BundleDetailList(TreeViewState state) : base(state)
+        internal BundleDetailList(TreeViewState<int> state) : base(state)
         {
             m_Selecteditems = new HashSet<AssetBundleModel.BundleDataInfo>();
             showBorder = true;
@@ -46,10 +46,10 @@ namespace AssetBundleBrowser
                 ExpandAll();
             }
         }
-        protected override TreeViewItem BuildRoot()
+        protected override TreeViewItem<int> BuildRoot()
         {
-            var root = new TreeViewItem(-1, -1);
-            root.children = new List<TreeViewItem>();
+            var root = new TreeViewItem<int>(-1, -1);
+            root.children = new List<TreeViewItem<int>>();
             if (m_Selecteditems != null)
             {
                 foreach(var bundle in m_Selecteditems)
@@ -84,7 +84,7 @@ namespace AssetBundleBrowser
             m_TotalRect = rect;
             base.OnGUI(rect);
         }
-        protected override float GetCustomRowHeight(int row, TreeViewItem item)
+        protected override float GetCustomRowHeight(int row, TreeViewItem<int> item)
         {
             if( (item as BundleDetailItem) != null)
             {
@@ -95,16 +95,16 @@ namespace AssetBundleBrowser
         }
 
 
-        internal static TreeViewItem AppendBundleToTree(AssetBundleModel.BundleDataInfo bundle)
+        internal static TreeViewItem<int> AppendBundleToTree(AssetBundleModel.BundleDataInfo bundle)
         {
             var itemName = bundle.m_Name.fullNativeName;
-            var bunRoot = new TreeViewItem(itemName.GetHashCode(), 0, itemName);
+            var bunRoot = new TreeViewItem<int>(itemName.GetHashCode(), 0, itemName);
 
             var str = itemName + k_SizeHeader;
-            var sz = new TreeViewItem(str.GetHashCode(), 1, k_SizeHeader + bundle.TotalSize());
+            var sz = new TreeViewItem<int>(str.GetHashCode(), 1, k_SizeHeader + bundle.TotalSize());
 
             str = itemName + k_DependencyHeader;
-            var dependency = new TreeViewItem(str.GetHashCode(), 1, k_DependencyEmpty);
+            var dependency = new TreeViewItem<int>(str.GetHashCode(), 1, k_DependencyEmpty);
             var depList = bundle.GetBundleDependencies();
             if(depList.Count > 0)
             {
@@ -112,12 +112,12 @@ namespace AssetBundleBrowser
                 foreach (var dep in bundle.GetBundleDependencies())
                 {
                     str = itemName + dep;
-                    dependency.AddChild(new TreeViewItem(str.GetHashCode(), 2, dep));
+                    dependency.AddChild(new TreeViewItem<int>(str.GetHashCode(), 2, dep));
                 }
             }
 
             str = itemName + k_MessageHeader;
-            var msg = new TreeViewItem(str.GetHashCode(), 1, k_MessageEmpty);
+            var msg = new TreeViewItem<int>(str.GetHashCode(), 1, k_MessageEmpty);
             if (bundle.HasMessages())
             {
                 msg.displayName = k_MessageHeader;

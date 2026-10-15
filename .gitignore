@@ -60,3 +60,7 @@ Data/ur.ydk
 /Assets/SpineWallpaper/
 /Assets/StreamingAssets/
 /Assets/Wallpaper/
+
+# Standalone regression projects (Unity-generated projects remain ignored).
+!/Tools/Tests/**/*.csproj
+/Tools/Tests/**/bin/

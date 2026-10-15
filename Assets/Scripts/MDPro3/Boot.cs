@@ -100,15 +100,11 @@ namespace MDPro3
                 }
             }
 
-            IEnumerator enumerator;
             foreach (string zip in zips)
             {
                 if (Config.Get(zip + "_install", "0") == "0")
                 {
-                    enumerator = Check(zip);
-                    StartCoroutine(enumerator);
-                    while (enumerator.MoveNext())
-                        yield return enumerator.Current;
+                    yield return StartCoroutine(Check(zip));
                     Config.Set(zip + "_install", "1");
                     Config.Save();
                     GC.Collect();
@@ -139,12 +135,7 @@ namespace MDPro3
                 outPath = type.Split('_')[0];
             if (outPath.Length > 0 && !Directory.Exists(outPath))
                 Directory.CreateDirectory(outPath);
-            IEnumerator enumerator = ExtractZipFile(bytes, outPath);
-            StartCoroutine(enumerator);
-            while (enumerator.MoveNext())
-            {
-                yield return enumerator.Current;
-            }
+            yield return StartCoroutine(ExtractZipFile(bytes, outPath));
         }
 
         IEnumerator LoadMainSceneAsync()
@@ -247,7 +238,6 @@ namespace MDPro3
                 if(installVersion.Length > 5 || !installVersion.EndsWith("0"))
                 {
                     title = "不能直接安装更新包。Can not install update apk directly.";
-                    Directory.Delete(Program.dataPath);
                     return false;
                 }
                 else

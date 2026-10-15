@@ -19,6 +19,7 @@ namespace MDPro3
         public static void Initialize(string path)
         {
             Config.path = path;
+            translations.Clear();
             if (!File.Exists(path))
             {
                 File.Create(path).Close();
@@ -111,14 +112,14 @@ namespace MDPro3
         }
         public static float GetFloat(string v, float defau)
         {
-            var getted = 0;
             try
             {
-                getted = int.Parse(Get(v, (defau * 1000).ToString()));
+                if (int.TryParse(Get(v, (defau * 1000).ToString()), out var getted))
+                    return getted / 1000f;
             }
             catch { }
 
-            return getted / 1000f;
+            return defau;
         }
         public static void SetFloat(string v, float f)
         {
@@ -167,7 +168,10 @@ namespace MDPro3
 #if UNITY_ANDROID
             defau = 1500f;
 #endif
-            var scale = float.Parse(Get("UIScale", defau.ToString())) / 1000;
+            if (!float.TryParse(Get("UIScale", defau.ToString()), out var configuredScale)
+                || float.IsNaN(configuredScale) || float.IsInfinity(configuredScale) || configuredScale <= 0)
+                configuredScale = defau;
+            var scale = configuredScale / 1000;
             return scale > maxUIScale ? maxUIScale : scale;
         }
     }

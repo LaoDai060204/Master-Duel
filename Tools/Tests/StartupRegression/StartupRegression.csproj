@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="obj/Boot.utf8.cs" Link="Boot.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="UnityStubs.cs" />
+  </ItemGroup>
+  <Target Name="PrepareBootSource" BeforeTargets="CoreCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/prepare_source.py&quot;" />
+  </Target>
+</Project>

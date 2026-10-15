@@ -674,7 +674,7 @@ namespace Spine.Unity.Editor {
 
 		static bool IsSkeletonTexturePMA (SkeletonGraphic skeletonGraphic, out bool detectionSucceeded) {
 			Texture texture = skeletonGraphic.mainTexture;
-			string texturePath = AssetDatabase.GetAssetPath(texture.GetInstanceID());
+			string texturePath = AssetDatabase.GetAssetPath(texture);
 			TextureImporter importer = (TextureImporter)TextureImporter.GetAtPath(texturePath);
 			if (importer.alphaIsTransparency != importer.sRGBTexture) {
 				Debug.LogWarning(string.Format("Texture '{0}' at skeleton '{1}' is neither configured correctly for " +
