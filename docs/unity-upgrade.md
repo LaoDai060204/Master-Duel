@@ -29,6 +29,7 @@ Application ID mới tạo danh tính ứng dụng riêng. Bản cài cũ có th
 - `UIScrollToSelection` hỗ trợ Input System mới khi bật hủy cuộn, đồng thời kiểm tra EventSystem/content còn thiếu.
 - Menu chỉ thông báo khi phiên bản cập nhật hợp lệ và mới hơn, tránh báo nhầm bản cũ hoặc phản hồi HTML là bản cập nhật.
 - Công cụ Editor được đối chiếu với API trong mã tham chiếu Unity đích; xem diff để biết các thay đổi TreeView và EntityId.
+- Bỏ `com.unity.modules.vr` khỏi manifest và entry tương ứng trong lockfile: module cũ không có trong Editor 6000.6.3f1 và gây lỗi `Package ... cannot be found`. Giữ `com.unity.modules.xr` vì module này vẫn có. Không có mã C# trong checkout dùng API VR cũ; toàn bộ module còn lại trong manifest đã được đối chiếu với các package đi kèm Editor. Đây là loại bỏ một entry không còn hợp lệ, chưa phải resolve lại toàn bộ dependency graph.
 
 `Tools/Tests/run.sh` chạy kiểm tra hành vi các bản sửa runtime bằng .NET 8. Mã nguồn gốc có encoding GB18030 được giữ nguyên; harness khởi động chuyển bản sao sang UTF-8 trong `obj` trước khi biên dịch. Không thay đổi file nguồn để phục vụ harness.
 
