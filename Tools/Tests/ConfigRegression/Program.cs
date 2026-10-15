@@ -25,6 +25,16 @@ var cases = new (string Name, Action Run)[]
         Config.Save();
         Equal("Language->ja-JP\r\nName->Duelist\r\nVolume->625\r\n", File.ReadAllText(configPath));
     }),
+    ("Values containing the separator survive save and reload", () =>
+    {
+        Initialize("Password->one->two\r\nEmpty->\r\nMalformed\r\n");
+        Equal("one->two", Config.Get("Password", "missing"));
+        Equal("", Config.Get("Empty", "missing"));
+        Equal(false, Config.Have("Malformed"));
+        Config.Save();
+        Config.Initialize(configPath);
+        Equal("one->two", Config.Get("Password", "missing"));
+    }),
     ("New configuration does not inherit the previous file", () =>
     {
         Initialize("Language->ja-JP\r\nOldSetting->private\r\n");

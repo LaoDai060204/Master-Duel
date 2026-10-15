@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Text.RegularExpressions;
 using System.IO;
 using UnityEngine;
 using MDPro3.Utility;
@@ -42,12 +41,12 @@ namespace MDPro3
             translations.Clear();
             for (var i = 0; i < lines.Length; i++)
             {
-                var mats = Regex.Split(lines[i], "->");
-                if (mats.Length == 2)
+                var separator = lines[i].IndexOf("->", StringComparison.Ordinal);
+                if (separator >= 0)
                 {
                     var s = new OneString();
-                    s.original = mats[0];
-                    s.translated = mats[1];
+                    s.original = lines[i].Substring(0, separator);
+                    s.translated = lines[i].Substring(separator + 2);
                     translations.Add(s);
                 }
             }

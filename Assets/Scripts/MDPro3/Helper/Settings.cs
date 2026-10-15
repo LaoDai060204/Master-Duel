@@ -120,7 +120,7 @@ namespace MDPro3
             {
                 _data = EnsureDefaultValues(json);
             }
-            catch(JsonReaderException ex)
+            catch(JsonException ex)
             {
                 MessageManager.Cast("Failed to parse Settings.json: " + ex.Message);
                 _data = new SettingData();
@@ -130,12 +130,16 @@ namespace MDPro3
         private static void SaveSettings(SettingData data)
         {
             var json = JsonConvert.SerializeObject(data, Formatting.Indented);
+            Directory.CreateDirectory(Path.GetDirectoryName(JsonPath));
             File.WriteAllText(JsonPath, json);
         }
 
         private static SettingData EnsureDefaultValues(string json)
         {
-            var data = JsonConvert.DeserializeObject<SettingData>(json);
+            var data = JsonConvert.DeserializeObject<SettingData>(json, new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore
+            }) ?? new SettingData();
             var defau = new SettingData();
             bool needOverwrite = false;
 
