@@ -129,8 +129,17 @@ namespace MDPro3
         private IEnumerator LoadMyCardNewsAsync()
         {
             var news = MyCard.GetNews();
-            while (!news.IsCompleted)
+            while (!news.IsCompleted && Application.isPlaying)
                 yield return null;
+            if (!Application.isPlaying || news.IsCanceled)
+                yield break;
+            if (news.IsFaulted)
+            {
+                Debug.LogWarning("Could not load MyCard news: " + news.Exception.GetBaseException().Message);
+                yield break;
+            }
+            if (news.Result == null || Program.instance == null)
+                yield break;
             Program.instance.news_.news = news.Result;
             Program.instance.news_.LoadNews();
         }

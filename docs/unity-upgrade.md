@@ -2,46 +2,73 @@
 
 ## Trạng thái
 
-Đích đã xác nhận qua tag `6000.6.3f1` trong Unity-Technologies/UnityCsReference (commit `ed99dc1ddc11ec2f31893417d1ad7c142977d402`). Checkout ban đầu ghim `6000.0.28f1`; README cũ nhắc `6000.0.10f1` và còn dấu merge conflict.
+Editor Linux **6000.6.3f1 (45d8eee7de74)** đã được cài tại `/workspace/.tools/unity/6000.6.3f1/Editor/Unity`. Gói chính thức 4.157.358.476 byte khớp MD5 Unity công bố `6b3fb34f445221e3e1b5e439d7e1d87e`; `Unity -version` và chạy lặp lại script cài đặt đều đạt.
 
-Đã cài Unity Editor Linux **6000.6.3f1 (45d8eee7de74)** tại `/workspace/.tools/unity/6000.6.3f1/Editor/Unity`. Revision được xác nhận qua API phát hành Unity; archive 4.157.358.476 byte khớp checksum MD5 Unity công bố `6b3fb34f445221e3e1b5e439d7e1d87e`. `Unity -version` trả đúng phiên bản; script cài đặt chạy lại thành công và tái sử dụng bản có sẵn.
+Batch import đã được thử lại sau các bản sửa và dừng với **exit 198**: `No valid Unity Editor license found. Please activate your license.` Log hiện tại: `/tmp/master-duel-unity-import.log`. Chưa có import, Unity Test Runner, Play Mode hoặc player build thành công. Các kiểm tra bên dưới xác minh những phạm vi cụ thể; không xác nhận toàn bộ game đã chạy được.
 
-Batch import đã chạy trong sandbox và thử lại với quyền cần thiết. Cả hai dừng với **exit 198**: `No valid Unity Editor license found. Please activate your license.` Log: `/tmp/master-duel-unity-import.log`. Không thể xác nhận import/build/Play Mode hoàn tất khi giấy phép chưa được kích hoạt; đây là blocker môi trường, không phải lỗi C# đã quan sát từ Unity.
+## Cấu trúc và các bản sửa
 
-## Cá nhân hóa
+Xem [cấu trúc mã](architecture.md). Mã sản phẩm giữ C# 9 phù hợp với Unity đích; .NET SDK 8 chỉ dùng cho công cụ kiểm tra độc lập. Giữ GUID, tên MonoBehaviour, namespace `MDPro3`, giấy phép và ghi nhận gốc.
 
-- Product: `Master-Duel`; company: `LaoDai060204`.
-- Application ID Android/Standalone/iOS: `com.laodai060204.masterduel`; Product GUID mới cho fork.
-- Menu lấy tên từ `Application.productName`.
-- Kiểm tra phiên bản ứng dụng đọc repository `LaoDai060204/Master-Duel`, giữ tên trường cấu hình cũ để tương thích.
-- Giữ nguyên giấy phép, ghi nhận dự án gốc và namespace `MDPro3`.
+- `Boot` điều khiển chuỗi iterator, dừng đúng bước khi đọc/giải nén/catalog/Items/scene thất bại; chỉ ghi dấu cài ZIP khi hoàn tất. Thay `WWW` bằng `UnityWebRequest` có timeout và disposal. Kiểm tra đường dẫn toàn bộ ZIP trước khi ghi.
+- `Program` áp dụng kết quả từ parser dòng lệnh thuần C#, tránh đọc lại giá trị như một flag và tránh phụ thuộc thứ tự `-j`/`-d`.
+- `Config` giữ giá trị chứa `->`, dùng mặc định cho dữ liệu số sai, không đưa thiết lập file trước sang file mới.
+- `Settings` dùng mặc định từ constructor và bỏ quét tên thuộc tính bằng chuỗi. Đọc file hiện có không ghi mất trường mở rộng, cách định dạng hoặc giá trị dùng tên thuộc tính không phân biệt hoa/thường.
+- `TextureLoader` giới hạn tải bằng semaphore, trả suất trong `finally`, hoàn tất các nhánh lỗi cache và quản lý texture theo đúng owner/generation. Kết quả đang tải cũ không phá cache mới sau `DeleteCache`.
+- `MyCard` serialize JSON đúng, xử lý body lỗi HTTP không phải JSON, escape username trong URL và cache avatar theo hash URL. Giải phóng texture thừa, giữ cache bộ nhớ khi ghi đĩa thất bại.
+- `OnlineDeck` giữ các slot cover riêng; chỉ đổi metadata sau xác nhận máy chủ. Lưu qua file tạm/thay thế và so sánh snapshot nội dung/identity trước khi commit kết quả đang chờ. Luồng upload/download/delete giữ bản chỉnh sửa mới và phản hồi đến sai thứ tự không ghi đè dữ liệu mới. Các deck mới xuất hiện giữa lượt đồng bộ được xử lý ở lượt tiếp theo.
+- `MessageManager` giữ FIFO trước khi prefab sẵn sàng và khi vượt giới hạn hiển thị; giải phóng các handle lỗi, callback cũ, khởi tạo lại và hủy manager.
+- API TreeView generic/EntityId của các công cụ Editor đã chuyển sang API đích. Bổ sung tham chiếu `UnityEngine.UI` còn thiếu trong ba `asmdef` Spine.
 
-Application ID mới tạo danh tính ứng dụng riêng. Bản cài cũ có thể dùng vị trí lưu dữ liệu khác; cần sao lưu dữ liệu trước khi thử cập nhật trên thiết bị.
+Thông tin sản phẩm: **Master-Duel / LaoDai060204**, application ID `com.laodai060204.masterduel`. Kênh cập nhật trỏ repository của fork. Application ID mới tạo danh tính và có thể dùng vị trí lưu dữ liệu khác trên thiết bị.
 
-## Thay đổi và kiểm tra
+## Package
 
-- Bỏ import `UnityEditor` không dùng khỏi mã runtime của menu, tránh lỗi build player.
-- `Boot` chỉ để một scheduler điều khiển mỗi coroutine giải nén và chờ coroutine con hoàn tất.
-- Từ chối APK cập nhật lần đầu không xóa `Data` hoặc ném lỗi thư mục không rỗng.
-- `Config.Initialize` không đưa thiết lập của file cũ vào file mới. Giá trị số sai/tràn và UI scale không hợp lệ dùng mặc định.
-- Giá trị cấu hình chứa `->` được tách tại dấu phân cách đầu tiên để không mất sau khi lưu/đọc lại.
-- `Settings.json` rỗng, JSON null/sai kiểu hoặc trường null dùng mặc định an toàn; giữ các giá trị tùy chỉnh hợp lệ và mảng rỗng chủ ý. Khởi tạo lần đầu tạo thư mục `Data` khi cần.
-- `UIScrollToSelection` hỗ trợ Input System mới khi bật hủy cuộn, đồng thời kiểm tra EventSystem/content còn thiếu.
-- Menu chỉ thông báo khi phiên bản cập nhật hợp lệ và mới hơn, tránh báo nhầm bản cũ hoặc phản hồi HTML là bản cập nhật.
-- Công cụ Editor được đối chiếu với API trong mã tham chiếu Unity đích; xem diff để biết các thay đổi TreeView và EntityId.
-- Bỏ `com.unity.modules.vr` khỏi manifest và entry tương ứng trong lockfile: module cũ không có trong Editor 6000.6.3f1 và gây lỗi `Package ... cannot be found`. Giữ `com.unity.modules.xr` vì module này vẫn có. Không có mã C# trong checkout dùng API VR cũ; toàn bộ module còn lại trong manifest đã được đối chiếu với các package đi kèm Editor. Đây là loại bỏ một entry không còn hợp lệ, chưa phải resolve lại toàn bộ dependency graph.
+Manifest/lock đã được đồng bộ từ metadata thực trong gói Editor đã kiểm checksum, không phải kết quả Unity resolver:
 
-`Tools/Tests/run.sh` chạy kiểm tra hành vi các bản sửa runtime bằng .NET 8. Mã nguồn gốc có encoding GB18030 được giữ nguyên; harness khởi động chuyển bản sao sang UTF-8 trong `obj` trước khi biên dịch. Không thay đổi file nguồn để phục vụ harness.
+| Package | Phiên bản đích |
+| --- | --- |
+| URP/Core/ShaderGraph/Universal Config | 17.6.0 |
+| UGUI | 2.6.0 |
+| Timeline | 6.6.0 |
+| Test Framework / NUnit | 1.8.0 / 2.1.0 |
+| Multiplayer Center | 2.0.1 |
 
-Kết quả: Config desktop **15/15**, Config Android **15/15**, Settings **11/11**, Boot **3/3**; input New **50**, Legacy **7**, Both **7**, None **6** lượt kiểm tra đạt. Tổng **114 lượt** qua các biến thể. Settings trước sửa đạt 3/11; kiểm tra dấu phân cách cấu hình cũng thất bại trước sửa. Các adapter không chứng minh toàn bộ game chạy được trong Unity.
+Đã bỏ module `com.unity.modules.vr` không còn được cung cấp, entry builtin `light-transport` cũ không còn reachable và scoped registry YooAsset không dùng. Bổ sung dependency cần thiết từ metadata Editor; giữ nguyên cả ba revision/hash Git. Các pin registry có thay đổi API lớn như Cinemachine 2.10.3 được giữ để chờ chuyển đổi code/scene riêng.
 
-`python3 Tools/Unity/compile-vendor.py` dùng compiler, DLL .NET Standard/Unity và cache DLL template đi kèm Editor đã cài, không có Unity API giả. Biên dịch **4 assembly/169 file C#** thành công: AssetBundle Browser (18), spine-csharp (47), spine-unity (59), spine-unity-editor (45). Mã nguồn được staging sang thư mục tạm, giữ nguyên source trong checkout. Đây là kiểm tra API C# độc lập; chưa bao gồm toàn bộ Assembly-CSharp, Unity asset import, package resolution hoặc player build. Warning chưa được xử lý hết.
+`python3 Tools/Unity/check-packages.py` đạt với **51 phụ thuộc gốc / 70 mục khóa**, không có lỗi hoặc cảnh báo chưa giải quyết. Sáu thông tin về pin registry được giữ được in rõ. Kiểm tra này xác minh graph metadata và phiên bản tối thiểu; chưa tải/resolve toàn bộ package.
 
-## Phần cần xác minh trong Unity
+## Kiểm tra đã chạy
 
-1. Kích hoạt giấy phép Unity hợp lệ trên môi trường chạy Editor. Không đưa thông tin tài khoản hoặc license vào source. Các miền metadata/download/registry hiện đã truy cập được; lỗi mạng 403 trước đó đã được gỡ. Cài/tái sử dụng Editor bằng `bash Tools/Unity/install-editor.sh`.
-2. Mở dự án bằng 6000.6.3f1, kiểm tra Package Manager và xem diff sau API Updater. Manifest/lockfile hiện giữ các phiên bản package gốc; chưa xác nhận toàn bộ package tương thích Editor đích. Editor mới đi kèm URP/Core/ShaderGraph **17.6.0** và UGUI **2.6.0**, còn manifest cũ yêu cầu URP 17.0.3/UGUI 2.0.0. Cần để Package Manager resolve và kiểm tra diff; không tự ghi lockfile khi chưa chạy resolver.
-3. Chạy import batch với đường dẫn Editor thực tế:
+Từ repository root:
+
+```sh
+DOTNET_CLI_HOME=/tmp/master-duel-dotnet-home DOTNET=/workspace/.tools/dotnet/dotnet bash Tools/Tests/run.sh
+```
+
+| Bộ kiểm tra | Kết quả/phạm vi |
+| --- | --- |
+| Config | 15 desktop + 15 Android |
+| Settings | 14 tình huống |
+| Startup | 13 tình huống; ZIP dùng SharpZipLib thật |
+| Command line / archive paths | 10 tình huống |
+| Texture | 58 kiểm tra, gồm owner/waiter đang tải và cache reset |
+| MyCard | 31 tình huống JSON/HTTP/avatar |
+| OnlineDeck | 39 tình huống / 148 assertion |
+| Message | 12 tình huống khởi tạo, FIFO và handle |
+| Scroll | 50/7/7/6 theo New/Legacy/Both/None |
+| SourceAudit | 3.008 file C# qua Editor/Linux, Windows, Android; 0 lỗi cú pháp |
+
+Các harness liên kết source thật và thay adapter tại ranh giới Unity/HTTP/UI. Một số dùng Newtonsoft.Json của SDK; Startup dùng SharpZipLib đi kèm repository. Source GB18030 được staging thành UTF-8 trong `obj` khi cần, giữ nguyên file gốc. Chúng chưa kiểm tra renderer, server thật hoặc hành vi transaction với chương trình ngoài cùng sửa file giữa lần kiểm tra và lần ghi.
+
+`Tools/Unity/compile-vendor.py` tuân thủ ranh giới `asmdef`, dùng compiler/DLL thật đi kèm Editor và chỉ cấp tham chiếu được khai báo. Kết quả: **Editor 7 assembly / 193 file C#**, **Standalone 4 / 122**, **Android 4 / 122**, tất cả đạt. Cấu hình runtime không cấp DLL UnityEditor. Đây là kiểm tra API độc lập, chưa phải player build hoặc biên dịch toàn bộ Assembly-CSharp; warning vẫn còn.
+
+## Phần còn cần xác minh
+
+1. Kích hoạt giấy phép Unity hợp lệ trên máy chạy Editor. Các miền metadata/download Editor đã truy cập được; tải archive package từ `download.packages.unity.com` trong cloud vẫn trả 403 ở lần thử gần nhất, kể cả khi đã chạy với quyền ngoài sandbox.
+2. Chạy lại Package Manager/import, kiểm tra thay đổi do resolver và API Updater. Các package registry được giữ cần kiểm chứng trên Editor có license. Không sửa checksum hoặc tắt xác minh TLS để vượt lỗi tải.
+3. Khôi phục tài nguyên ngoài repository: bundle nền tảng, Picture/Art, Picture/Closeup, Picture/DIY, Sound và cấu hình/catalog Addressables. Lõi `.so` đi kèm là Android ARM64; Linux Editor x86_64 cần thư viện phù hợp để chạy duel.
+4. Chạy import bằng lệnh:
 
    ```sh
    /workspace/.tools/unity/6000.6.3f1/Editor/Unity -batchmode -nographics -quit \
@@ -49,7 +76,4 @@ Kết quả: Config desktop **15/15**, Config Android **15/15**, Settings **11/1
      -logFile /tmp/master-duel-unity-import.log
    ```
 
-4. Kiểm tra exit code, lỗi compile và log. Khi import đạt, xác minh công cụ AssetBundle Browser/Spine Editor, rồi thử `Assets/Boot.unity` với Addressables và tài nguyên đầy đủ.
-5. Build player Windows hoặc Android với module tương ứng. Trên Android, thử cài mới gói đầy đủ, từ chối gói cập nhật khi chưa có bản nền, cập nhật trên bản đã cài và giữ nguyên dữ liệu.
-
-Batch import trên đã thực thi nhưng chưa qua bước kiểm tra giấy phép. Chưa có kết quả Unity Test Runner hoặc build player; các test hiện có không xác minh thư viện native, đồ họa, mạng hay luồng duel.
+5. Sau khi import đạt, kiểm thử scene Boot, công cụ Spine/AssetBundle, đăng nhập, đồng bộ deck với server thử nghiệm, render/cache ảnh và build Windows/Android với module nền tảng tương ứng.

@@ -17,6 +17,9 @@ fi
 "$dotnet_bin" run --project "$test_root/ConfigRegression/ConfigRegression.csproj" --property:DefineConstants=UNITY_ANDROID
 "$dotnet_bin" run --project "$test_root/StartupRegression/StartupRegression.csproj"
 "$dotnet_bin" run --project "$test_root/SettingsRegression/SettingsRegression.csproj"
+for project in CommandLineRegression TextureRegression MyCardRegression OnlineDeckRegression MessageRegression SourceAudit; do
+    "$dotnet_bin" run --project "$test_root/$project/$project.csproj"
+done
 for backend in New Legacy Both None; do
     "$dotnet_bin" run --project "$test_root/ScrollRegression/ScrollRegression.csproj" --property:InputBackend="$backend"
 done

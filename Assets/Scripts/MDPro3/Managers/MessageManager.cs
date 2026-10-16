@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using UnityEngine.ResourceManagement.AsyncOperations;
 using UnityEngine.UI;
 
 namespace MDPro3
@@ -16,31 +17,78 @@ namespace MDPro3
         public GameObject messageCard;
 
         static MessageManager instance;
-        static List<GameObject> items = new List<GameObject>();
+        static readonly List<GameObject> items = new List<GameObject>();
         static readonly float transitionTime = 0.3f;
         static readonly float existTime = 3f;
+        readonly List<AsyncOperationHandle<GameObject>> prefabHandles = new List<AsyncOperationHandle<GameObject>>();
+        int loadGeneration;
 
         public static string messageFromSubString = string.Empty;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics()
+        {
+            instance = null;
+            items.Clear();
+            cachedMessage.Clear();
+            messageFromSubString = string.Empty;
+        }
 
         public override void Initialize()
         {
             base.Initialize();
             instance = this;
-            var handle = Addressables.LoadAssetAsync<GameObject>("MessageCast");
+            loadGeneration++;
+            ReleasePrefabs();
+            messageCast = messageToast = messageCard = null;
+            LoadPrefab("MessageCast", prefab =>
+            {
+                messageCast = prefab;
+                FlushCachedMessages();
+            });
+            LoadPrefab("MessageToast", prefab => messageToast = prefab);
+            LoadPrefab("MessageCard", prefab => messageCard = prefab);
+        }
+
+        void LoadPrefab(string key, System.Action<GameObject> onLoaded)
+        {
+            int generation = loadGeneration;
+            var handle = Addressables.LoadAssetAsync<GameObject>(key);
             handle.Completed += (result) =>
             {
-                messageCast = result.Result;
+                if (this == null || instance != this || generation != loadGeneration)
+                {
+                    Addressables.Release(result);
+                    return;
+                }
+                if (result.Status != AsyncOperationStatus.Succeeded || result.Result == null)
+                {
+                    Debug.LogError("Cannot load " + key + ". "
+                        + result.OperationException, this);
+                    Addressables.Release(result);
+                    return;
+                }
+                prefabHandles.Add(result);
+                onLoaded(result.Result);
             };
-            handle = Addressables.LoadAssetAsync<GameObject>("MessageToast");
-            handle.Completed += (result) =>
+        }
+
+        void ReleasePrefabs()
+        {
+            foreach (var handle in prefabHandles)
+                Addressables.Release(handle);
+            prefabHandles.Clear();
+        }
+
+        void OnDestroy()
+        {
+            loadGeneration++;
+            ReleasePrefabs();
+            if (instance == this)
             {
-                messageToast = result.Result;
-            };
-            handle = Addressables.LoadAssetAsync<GameObject>("MessageCard");
-            handle.Completed += (result) =>
-            {
-                messageCard = result.Result;
-            };
+                instance = null;
+                items.Clear();
+            }
         }
         public override void PerFrameFunction()
         {
@@ -85,7 +133,7 @@ namespace MDPro3
             });
         }
 
-        static List<string> cachedMessage = new List<string>();
+        static readonly Queue<string> cachedMessage = new Queue<string>();
 
         public static void Toast(string message)
         {
@@ -103,24 +151,22 @@ namespace MDPro3
 
         public static void Cast(string message)
         {
-            if (items.Count > 10)
-                return;
-            if (Program.instance.message_.messageCast == null)
-            {
-                cachedMessage.Add(message);
-                return;
-            }
+            cachedMessage.Enqueue(message);
+            FlushCachedMessages();
+        }
 
-            if(cachedMessage.Count > 0)
-            {
-                var ms = new List<string>(cachedMessage);
-                cachedMessage.Clear();
-                foreach(var m in ms)
-                    Cast(m);
-            }
+        static void FlushCachedMessages()
+        {
+            if (instance == null || instance.messageCast == null)
+                return;
+            while (cachedMessage.Count > 0 && items.Count <= 10)
+                ShowCast(cachedMessage.Dequeue());
+        }
 
+        static void ShowCast(string message)
+        {
             CameraManager.UIBlurPlus();
-            var item = Instantiate(Program.instance.message_.messageCast);
+            var item = Instantiate(instance.messageCast);
             item.transform.SetParent(instance.transform, false);
             item.transform.GetChild(0).GetComponent<TextMeshProUGUI>().text = message;
             RectTransform rect = item.GetComponent<RectTransform>();
@@ -138,6 +184,7 @@ namespace MDPro3
                 Destroy(item);
                 MoveUp();
                 CameraManager.UIBlurMinus();
+                FlushCachedMessages();
             });
         }
 

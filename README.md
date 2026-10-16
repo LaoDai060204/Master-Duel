@@ -22,10 +22,11 @@ Phiên bản đích đã được đặt trong `ProjectVersion.txt`, kèm revisi
 
 ```sh
 bash Tools/Unity/install-editor.sh
-python3 Tools/Unity/compile-vendor.py
+python3 Tools/Unity/check-packages.py
+python3 Tools/Unity/compile-vendor.py --platform editor
 ```
 
-Script cài Editor Linux dùng gói chính thức, kiểm tra checksum Unity công bố và tái sử dụng bản đã cài. Script biên dịch dùng compiler và DLL thật của Editor để kiểm tra bốn assembly AssetBundle Browser/Spine (169 file C#); cả bốn đã đạt. Đây là kiểm tra biên dịch độc lập, không thay thế import/Play Mode hoặc xác nhận toàn bộ package của game đã được resolve.
+Script cài Editor Linux dùng gói chính thức, kiểm tra checksum Unity công bố và tái sử dụng bản đã cài. Script biên dịch dùng compiler và DLL thật của Editor, theo tham chiếu `asmdef`: 7 assembly/193 file C# đạt cho Editor; 4 assembly/122 file đạt cho mỗi cấu hình Standalone và Android. Kiểm tra metadata đạt với 51 phụ thuộc gốc/70 mục khóa; 3.008 file C# được phân tích cú pháp qua ba cấu hình. Đây là kiểm tra biên dịch độc lập, không thay thế import/Play Mode hoặc xác nhận toàn bộ package của game đã được resolve.
 
 ## Tài nguyên cần bổ sung
 
@@ -51,7 +52,7 @@ bash Tools/Tests/run.sh
 
 Trong cloud hiện tại, SDK nằm ở `/workspace/.tools/dotnet`; có thể chạy `DOTNET=/workspace/.tools/dotnet/dotnet bash Tools/Tests/run.sh`.
 
-Các kiểm tra biên dịch và chạy mã thực tế của `Config`, `Settings`, `Boot` và `UIScrollToSelection` với các adapter Unity tối thiểu. Chúng kiểm tra xử lý cấu hình, thứ tự coroutine, giữ dữ liệu khi từ chối APK cập nhật và các nhánh Input System. Chúng **không thay thế** Unity Test Runner, import package hay kiểm thử game trên thiết bị.
+Các kiểm tra chạy mã thực tế của cấu hình, khởi động, tham số dòng lệnh, tải ảnh, MyCard, đồng bộ deck, hàng đợi thông báo và cuộn UI với adapter tại ranh giới Unity/HTTP. Chúng bao gồm phản hồi thất bại, kết quả đến sai thứ tự, chỉnh sửa khi đang chờ mạng và tài nguyên đang tải khi bị hủy. Xem [cấu trúc mã](docs/architecture.md) và [kết quả kiểm tra](docs/unity-upgrade.md). Chúng **không thay thế** Unity Test Runner, import package hay kiểm thử game trên thiết bị.
 
 ## Công cụ và đóng góp
 

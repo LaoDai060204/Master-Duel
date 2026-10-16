@@ -573,6 +573,15 @@ namespace MDPro3
             var task = MyCard.Login(inputMyCardAccount.text, inputMyCardPassword.text);
             while(!task.IsCompleted)
                 yield return null;
+            if (!Application.isPlaying)
+                yield break;
+            if (task.IsFaulted || task.IsCanceled || task.Result?.user == null)
+            {
+                MessageManager.Cast(InterString.Get("MyCard登录失败。"));
+                goMyCardLogin.SetActive(true);
+                goMyCardFunctions.SetActive(false);
+                yield break;
+            }
             if (task.Result.user.id == 0)
             {
                 MessageManager.Cast(InterString.Get("登录失败：") + task.Result.user.username);
@@ -602,7 +611,9 @@ namespace MDPro3
             while (!task.IsCompleted)
                 yield return null;
 
-            if (task.Result.user.id == 0)
+            if (!Application.isPlaying)
+                yield break;
+            if (task.IsFaulted || task.IsCanceled || task.Result?.user == null || task.Result.user.id == 0)
             {
                 MessageManager.Cast(InterString.Get("MyCard登录失败。"));
                 goMyCardLogin.SetActive(true);
@@ -622,21 +633,30 @@ namespace MDPro3
 
         IEnumerator RefreshMyCardAssets()
         {
-            if (MyCard.account == null || MyCard.account.user == null)
+            var account = MyCard.account;
+            if (account?.user == null)
                 yield break;
 
-            Manager.GetElement<TextMeshProUGUI>("TextUserName").text = MyCard.account.user.name;
+            Manager.GetElement<TextMeshProUGUI>("TextUserName").text = account.user.name;
 
             var task = MyCard.GetExp();
             while (!task.IsCompleted)
                 yield return null;
-            Manager.GetElement<TextMeshProUGUI>("TextExpValue").text = task.Result.exp.ToString();
-            Manager.GetElement<TextMeshProUGUI>("TextDPValue").text = task.Result.pt.ToString();
-            Manager.GetElement<TextMeshProUGUI>("TextAthleticWinValue").text = task.Result.athletic_win.ToString();
-            Manager.GetElement<TextMeshProUGUI>("TextAthleticWinRatioValue").text = task.Result.athletic_wl_ratio + "%";
-            Manager.GetElement<TextMeshProUGUI>("TextAthleticRankValue").text = task.Result.arena_rank.ToString();
-            Manager.GetElement<TextMeshProUGUI>("TextEntertainCountValue").text = task.Result.entertain_all.ToString();
-            Manager.GetElement<TextMeshProUGUI>("TextEntertainRankValue").text = task.Result.exp_rank.ToString();
+            if (!Application.isPlaying || !ReferenceEquals(account, MyCard.account))
+                yield break;
+            var userExp = task.IsFaulted || task.IsCanceled ? null : task.Result;
+            if (userExp == null)
+                MessageManager.Cast(InterString.Get("获取MyCard信息失败。"));
+            else
+            {
+                Manager.GetElement<TextMeshProUGUI>("TextExpValue").text = userExp.exp.ToString();
+                Manager.GetElement<TextMeshProUGUI>("TextDPValue").text = userExp.pt.ToString();
+                Manager.GetElement<TextMeshProUGUI>("TextAthleticWinValue").text = userExp.athletic_win.ToString();
+                Manager.GetElement<TextMeshProUGUI>("TextAthleticWinRatioValue").text = userExp.athletic_wl_ratio + "%";
+                Manager.GetElement<TextMeshProUGUI>("TextAthleticRankValue").text = userExp.arena_rank.ToString();
+                Manager.GetElement<TextMeshProUGUI>("TextEntertainCountValue").text = userExp.entertain_all.ToString();
+                Manager.GetElement<TextMeshProUGUI>("TextEntertainRankValue").text = userExp.exp_rank.ToString();
+            }
 
             while (!Appearance.loaded)
                 yield return null;
@@ -644,19 +664,26 @@ namespace MDPro3
 
             if (MyCard.avatar == null)
             {
-                var avatarTask = Tools.DownloadImageAsync(MyCard.account.user.avatar);
+                var avatarTask = Tools.DownloadImageAsync(account.user.avatar);
                 while (!avatarTask.IsCompleted)
                     yield return null;
-                MyCard.avatar = avatarTask.Result;
-                Manager.GetElement<RawImage>("RawImageAvatar").texture = MyCard.avatar;
+                if (!Application.isPlaying || !ReferenceEquals(account, MyCard.account))
+                    yield break;
+                if (!avatarTask.IsFaulted && !avatarTask.IsCanceled && avatarTask.Result != null)
+                {
+                    MyCard.avatar = avatarTask.Result;
+                    Manager.GetElement<RawImage>("RawImageAvatar").texture = MyCard.avatar;
+                }
             }
 
             goMyCardFunctions.SetActive(true);
+            if (userExp == null)
+                yield break;
 
             while (TextureManager.container == null)
                 yield return null;
 
-            var rankSprites = TextureManager.container.GetRankSprites(task.Result.pt);
+            var rankSprites = TextureManager.container.GetRankSprites(userExp.pt);
             Manager.GetElement<Image>("IconBG").sprite = rankSprites[0];
             Manager.GetElement<Image>("IconRank").sprite = rankSprites[1];
             Manager.GetElement<Image>("IconTier1").sprite = rankSprites[2];
@@ -816,7 +843,11 @@ namespace MDPro3
 
         IEnumerator SyncDecks()
         {
-            if(OnlineDeck.decks == null)
+            var account = MyCard.account;
+            if (account?.user == null)
+                yield break;
+            var cloudDecks = OnlineDeck.decks;
+            if(cloudDecks == null)
             {
                 MessageManager.Cast(InterString.Get("同步卡组失败。"));
                 yield break;
@@ -824,8 +855,19 @@ namespace MDPro3
 
             var deckFiles = Directory.GetFiles(Program.deckPath, "*.ydk");
             var decks = new List<Deck>();
+            var localSnapshots = new Dictionary<string, OnlineDeck.LocalDeckSnapshot>();
             foreach(var deckPath in deckFiles)
+            {
                 decks.Add(new Deck(deckPath));
+                var name = Path.GetFileNameWithoutExtension(deckPath);
+                if (OnlineDeck.TryCaptureLocalDeck(name, out var snapshot))
+                    localSnapshots[name] = snapshot;
+            }
+            var destinationSnapshots = new Dictionary<string, OnlineDeck.LocalDeckSnapshot>();
+            foreach (var cloud in cloudDecks)
+                if (cloud != null && !cloud.isDelete
+                    && OnlineDeck.TryCaptureLocalDeck(cloud.deckName, out var snapshot))
+                    destinationSnapshots[cloud.deckName] = snapshot;
 
             var decksNeedUpload = new Dictionary<string, Deck>();//没在服务器找到对应的deckId的本地卡组
             var decksNeedUpdateToServer= new Dictionary<string, Deck>();//找到deckId但本地时间大于服务器时间五秒以上的卡组
@@ -836,7 +878,7 @@ namespace MDPro3
             {
                 var deckName = Path.GetFileNameWithoutExtension(deckFiles[i]);
 
-                if (decks[i].userId != MyCard.account.user.id.ToString())
+                if (decks[i].userId != account.user.id.ToString())
                 {
                     decksNeedUpload.Add(deckName, decks[i]);
                     continue;
@@ -844,14 +886,16 @@ namespace MDPro3
 
                 bool deckIdFound = false;
                 bool deleted = false;
-                foreach(var od in OnlineDeck.decks)
+                foreach(var od in cloudDecks)
                 {
                     if (od.deckId == decks[i].deckId)
                     {
                         if (od.isDelete)
                         {
                             Debug.LogFormat("Deck Delete: [{0}]", deckName);
-                            File.Delete(deckFiles[i]);
+                            if (!localSnapshots.TryGetValue(deckName, out var snapshot)
+                                || !OnlineDeck.DeleteLocalDeck(deckName, od.deckId, snapshot))
+                                MessageManager.Cast("Cloud deletion was skipped because the local deck changed or could not be read.");
                             deleted = true;
                         }
                         else
@@ -883,22 +927,27 @@ namespace MDPro3
             {
                 Debug.LogFormat("卡组[{0}]需要更新上传。", deck.Key);
 
+                if (!localSnapshots.TryGetValue(deck.Key, out var snapshot) || !snapshot.IsCurrent())
+                {
+                    MessageManager.Cast("A newer local deck edit was retained. Sync again to upload it.");
+                    continue;
+                }
                 var task = OnlineDeck.SyncDeck(deck.Value.deckId, deck.Key, deck.Value, false);
                 while (!task.IsCompleted)
                     yield return null;
+                if (!Application.isPlaying || !ReferenceEquals(account, MyCard.account))
+                    yield break;
             }
             //更新已经有Id的本地较旧卡组
             foreach (var deck in decksNeedUpdateFromServer)
             {
                 Debug.LogFormat("卡组[{0}]需要更新。", deck.Key);
 
-                var od = OnlineDeck.GetByID(deck.Value.deckId);
-                var oldPath = Program.deckPath + deck.Key + Program.ydkExpansion;
-                if(oldPath != od.deckName)
-                    File.Delete(oldPath);
-                var newPath = Program.deckPath + od.deckName + Program.ydkExpansion;
-                File.WriteAllText(newPath, od.deckYdk);
-                File.SetLastWriteTime(newPath, od.GetUpdateTime());
+                var od = Array.Find(cloudDecks, cloud => cloud != null && cloud.deckId == deck.Value.deckId);
+                if (od == null || !localSnapshots.TryGetValue(deck.Key, out var source)
+                    || !destinationSnapshots.TryGetValue(od.deckName, out var destination)
+                    || !OnlineDeck.SaveDownloadedDeck(od, destination, deck.Key, source))
+                    MessageManager.Cast("Cloud deck could not be saved locally. Existing local files were retained.");
             }
 
             //上传没有Id的本地卡组
@@ -911,17 +960,24 @@ namespace MDPro3
                     var info = string.Format("卡组[{0}]需要上传：{1}。", deck.Key, deck.Value.deckId);
                     Debug.Log(info);
 
+                    if (!localSnapshots.TryGetValue(deck.Key, out var snapshot) || !snapshot.IsCurrent())
+                    {
+                        MessageManager.Cast("A newer local deck edit was retained. Sync again to upload it.");
+                        continue;
+                    }
                     deckNames.Add(deck.Key);
                     decksToUp.Add(deck.Value);
                 }
                 var task2 = OnlineDeck.UploadDecks(decksToUp, deckNames);
                 while (!task2.IsCompleted)
                     yield return null;
+                if (!Application.isPlaying || !ReferenceEquals(account, MyCard.account))
+                    yield break;
             }
 
             //下载本地ID不存在的服务器卡组
             List<OnlineDeck.OnlineDeckData> odtd = new List<OnlineDeck.OnlineDeckData>();
-            foreach(var od in OnlineDeck.decks)
+            foreach(var od in cloudDecks)
                 if(!od.isDelete)
                     if (!localFoundedIds.Contains(od.deckId))
                         odtd.Add(od);
@@ -929,10 +985,9 @@ namespace MDPro3
             {
                 Debug.LogFormat("卡组[{0}]需要下载。{1}", deck.deckName, deck.isDelete);
 
-                var d = new Deck(deck.deckYdk, string.Empty, string.Empty);
-                d.userId = MyCard.account.user.id.ToString();
-                d.deckId = deck.deckId;
-                d.Save(deck.deckName, deck.GetUpdateTime());
+                if (!destinationSnapshots.TryGetValue(deck.deckName, out var destination)
+                    || !OnlineDeck.SaveDownloadedDeck(deck, destination))
+                    MessageManager.Cast("Cloud deck could not be saved locally. Existing local files were retained.");
             }
 
 #if UNITY_EDITOR

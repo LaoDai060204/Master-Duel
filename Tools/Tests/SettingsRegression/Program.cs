@@ -43,7 +43,23 @@ var cases = new (string Name, Action Run)[]
     ("Empty attack array remains a deliberate override", () =>
         Check("{\"FinalAttackBlueEyes\":[]}", data => Require(data.FinalAttackBlueEyes.Length == 0))),
     ("Missing fields get constructor defaults", () =>
-        Check("{}", data => Require(data.FinalAttackRa.Length > 0 && data.SavedCardFormat == ".jpg")))
+        Check("{}", data => Require(data.FinalAttackRa.Length > 0 && data.SavedCardFormat == ".jpg"))),
+    ("Partial settings preserve custom fields and formatting", () =>
+    {
+        const string json = "{\n  \"CustomExtension\": {\"active\":true},\n  \"BatchMove\": false\n}\n";
+        Check(json, data => Require(!data.BatchMove && data.FinalAttackRa.Length > 0));
+        Require(File.ReadAllText("Data/Settings.json") == json);
+        Settings.Initialize();
+        Require(File.ReadAllText("Data/Settings.json") == json);
+    }),
+    ("Case-insensitive property names retain configured values", () =>
+        Check("{\"batchMove\":false,\"cardRenderPassword\":false}", data =>
+            Require(!data.BatchMove && !data.CardRenderPassword))),
+    ("Missing fields are loaded without rewriting an existing file", () =>
+    {
+        Check("{}", data => Require(data.SavedCardSize.Length == 2));
+        Require(File.ReadAllText("Data/Settings.json") == "{}");
+    })
 };
 var failures = 0;
 try

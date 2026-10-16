@@ -1,0 +1,3 @@
+Run `dotnet run --project Tools/Tests/TextureRegression/TextureRegression.csproj` with .NET SDK 8.
+
+The harness compiles the actual `TextureLoader`, `TextureData`, and `TaskUtility` sources. Boundary doubles isolate missing-card and rendering failures, retry after errors, semaphore saturation, exit cancellation, request disposal, shared ownership, local URI escaping, and archive lookup casing. Held requests also verify release during loading, reset while an owner and waiter are pending, and completion of an old generation after replacement art/card acquisitions have completed. Timeouts detect the cache and slot hangs. These checks do not validate Unity rendering, imported assets, or live network services; those still require a licensed Editor.

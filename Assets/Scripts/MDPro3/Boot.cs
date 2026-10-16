@@ -7,7 +7,9 @@ using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine.AddressableAssets;
-using UnityEngine.ResourceManagement.ResourceProviders;
+using UnityEngine.Networking;
+using UnityEngine.ResourceManagement.AsyncOperations;
+using MDPro3.Utility;
 
 namespace MDPro3
 {
@@ -20,6 +22,7 @@ namespace MDPro3
         string dots;
         float time;
         bool extracting;
+        bool startupFailed;
         int totalNum;
         int nowNum;
 
@@ -28,7 +31,11 @@ namespace MDPro3
         void Start()
         {
             Application.targetFrameRate = 0;
+            StartCoroutine(RunStartup(InitializeStartup()));
+        }
 
+        IEnumerator InitializeStartup()
+        {
 #if !UNITY_EDITOR && UNITY_ANDROID
             Environment.CurrentDirectory = Application.persistentDataPath;
             Directory.SetCurrentDirectory(Application.persistentDataPath);
@@ -39,16 +46,70 @@ namespace MDPro3
                 foreach (var zip in paths)
                     zips.Add(Path.GetFileName(zip).Replace(".zip", ""));
 
-                StartCoroutine(CheckFile());
+                yield return CheckFile();
             }
 #else
             InitializeLanguage();
-            StartCoroutine(LoadMainSceneAsync());
+            yield return LoadMainSceneAsync();
 #endif
+        }
+
+        // Drive nested iterators in one coroutine so an extraction failure cannot
+        // resume the installer and mark an incomplete archive as installed.
+        IEnumerator RunStartup(IEnumerator operation)
+        {
+            var operations = new Stack<IEnumerator>();
+            operations.Push(operation);
+            try
+            {
+                while (operations.Count > 0)
+                {
+                    object yielded = null;
+                    bool moved = false;
+                    Exception failure = null;
+                    try
+                    {
+                        var current = operations.Peek();
+                        moved = current.MoveNext();
+                        if (moved)
+                            yielded = current.Current;
+                    }
+                    catch (Exception exception)
+                    {
+                        failure = exception;
+                    }
+                    if (failure != null)
+                    {
+                        startupFailed = true;
+                        extracting = false;
+                        totalNum = 0;
+                        title = "Startup failed: " + failure.Message;
+                        text.text = title;
+                        Debug.LogException(failure, this);
+                        yield break;
+                    }
+                    if (!moved)
+                    {
+                        (operations.Pop() as IDisposable)?.Dispose();
+                        continue;
+                    }
+                    if (yielded is IEnumerator nested)
+                        operations.Push(nested);
+                    else
+                        yield return yielded;
+                }
+            }
+            finally
+            {
+                while (operations.Count > 0)
+                    (operations.Pop() as IDisposable)?.Dispose();
+            }
         }
 
         void Update()
         {
+            if (startupFailed)
+                return;
             time += Time.deltaTime;
             if (time > 0.33f)
             {
@@ -95,8 +156,10 @@ namespace MDPro3
                 {
                     //Program.ClearDirectoryRecursively(new DirectoryInfo("Android/MonsterCutin"));
                     //Program.ClearDirectoryRecursively(new DirectoryInfo("Android/MasterDuel/Mate"));
-                    Directory.Delete("Android/MonsterCutin", true);
-                    Directory.Delete("Android/MasterDuel/Mate", true);
+                    if (Directory.Exists("Android/MonsterCutin"))
+                        Directory.Delete("Android/MonsterCutin", true);
+                    if (Directory.Exists("Android/MasterDuel/Mate"))
+                        Directory.Delete("Android/MasterDuel/Mate", true);
                 }
             }
 
@@ -104,14 +167,14 @@ namespace MDPro3
             {
                 if (Config.Get(zip + "_install", "0") == "0")
                 {
-                    yield return StartCoroutine(Check(zip));
+                    yield return Check(zip);
                     Config.Set(zip + "_install", "1");
                     Config.Save();
                     GC.Collect();
                 }
             }
             yield return null;
-            StartCoroutine(LoadMainSceneAsync());
+            yield return LoadMainSceneAsync();
         }
 
         IEnumerator Check(string type)
@@ -121,21 +184,24 @@ namespace MDPro3
             totalNum = 0;
 
             string filePath = Application.streamingAssetsPath + Program.slash + type + ".zip";
-            var www = new WWW(filePath);
-            while (!www.isDone)
+            // Android supplies a jar:file URI; desktop test/streaming paths need
+            // an absolute file URI (including escaping spaces and non-ASCII names).
+            if (!filePath.Contains("://"))
+                filePath = new Uri(Path.GetFullPath(filePath)).AbsoluteUri;
+            using var request = UnityWebRequest.Get(filePath);
+            request.timeout = 120;
+            var download = request.SendWebRequest();
+            while (!download.isDone)
             {
-                float progress = Mathf.Clamp01(www.progress / 0.9f);
-                progressBar.value = progress;
+                progressBar.value = Mathf.Clamp01(request.downloadProgress);
                 yield return null;
             }
+            if (request.result != UnityWebRequest.Result.Success)
+                throw new IOException("Cannot read " + type + ".zip: " + request.error);
+
             title = InterString.Get("正在解压[?]", type + ".zip");
-            byte[] bytes = www.bytes;
-            var outPath = "";
-            if (type.Contains("_"))
-                outPath = type.Split('_')[0];
-            if (outPath.Length > 0 && !Directory.Exists(outPath))
-                Directory.CreateDirectory(outPath);
-            yield return StartCoroutine(ExtractZipFile(bytes, outPath));
+            string outPath = type.Contains("_") ? type.Split('_')[0] : "";
+            yield return ExtractZipFile(request.downloadHandler.data, outPath);
         }
 
         IEnumerator LoadMainSceneAsync()
@@ -144,16 +210,21 @@ namespace MDPro3
             totalNum = 0;
             progressBar.value = 0;
 
-            Config.Initialize(Program.configPath);
-            Config.Set("Version", Application.version[..5]);
-            Config.Save();
-
             title = InterString.Get("正在初始化");
-            var ini = Addressables.InitializeAsync();
-            while (!ini.IsDone)
+            var ini = Addressables.InitializeAsync(false);
+            try
             {
-                progressBar.value = ini.PercentComplete;
-                yield return null;
+                while (!ini.IsDone)
+                {
+                    progressBar.value = ini.PercentComplete;
+                    yield return null;
+                }
+                if (ini.Status != AsyncOperationStatus.Succeeded)
+                    throw new InvalidOperationException("Addressables initialization failed.", ini.OperationException);
+            }
+            finally
+            {
+                Addressables.Release(ini);
             }
 
             title = InterString.Get("正在读取数据");
@@ -163,7 +234,17 @@ namespace MDPro3
                 progressBar.value = handle.PercentComplete;
                 yield return null;
             }
+            if (handle.Status != AsyncOperationStatus.Succeeded || handle.Result == null)
+            {
+                var failure = handle.OperationException;
+                Addressables.Release(handle);
+                throw new InvalidOperationException("Cannot load the Items asset. Check Addressables content.", failure);
+            }
             Program.items = handle.Result;
+
+            Config.Initialize(Program.configPath);
+            Config.Set("Version", Application.version[..5]);
+            Config.Save();
 
             title = InterString.Get("正在进入游戏");
             var load = Addressables.LoadSceneAsync("SceneMain");
@@ -171,6 +252,14 @@ namespace MDPro3
             {
                 yield return null;
                 progressBar.value = load.PercentComplete;
+            }
+            if (load.Status != AsyncOperationStatus.Succeeded)
+            {
+                var failure = load.OperationException;
+                Addressables.Release(load);
+                Program.items = null;
+                Addressables.Release(handle);
+                throw new InvalidOperationException("Cannot load SceneMain. Check Addressables content.", failure);
             }
         }
 
@@ -186,41 +275,35 @@ namespace MDPro3
 
         IEnumerator ExtractZipFile(byte[] data, string outFolder)
         {
-            ZipFile zf = null;
-            using (MemoryStream mstrm = new MemoryStream(data))
+            using var stream = new MemoryStream(data);
+            using var archive = new ZipFile(stream);
+            // Validate every entry before writing any payload, including entries
+            // with Windows separators when this code is running on Linux.
+            foreach (ZipEntry entry in archive)
+                ArchivePath.Resolve(outFolder, entry.Name);
+
+            totalNum = (int)archive.Count;
+            nowNum = 0;
+            extracting = true;
+            var buffer = new byte[4096];
+            try
             {
-                zf = new ZipFile(mstrm);
-                int count = 0;
-                foreach (ZipEntry zipEntry in zf)
-                    count++;
-                totalNum = count;
-                nowNum = 0;
-                extracting = true;
-                foreach (ZipEntry zipEntry in zf)
+                foreach (ZipEntry entry in archive)
                 {
                     nowNum++;
-                    if (!zipEntry.IsFile)
-                    {
+                    if (!entry.IsFile)
                         continue;
-                    }
-                    string entryFileName = zipEntry.Name;
-                    byte[] buffer = new byte[4096];
-                    Stream zipStream = zf.GetInputStream(zipEntry);
-                    string fullZipToPath = Path.Combine(outFolder, entryFileName);
-                    string directoryName = Path.GetDirectoryName(fullZipToPath);
-                    if (directoryName.Length > 0)
-                        Directory.CreateDirectory(directoryName);
-                    using (FileStream streamWriter = File.Create(fullZipToPath))
-                    {
-                        StreamUtils.Copy(zipStream, streamWriter, buffer);
-                    }
+                    string path = ArchivePath.Resolve(outFolder, entry.Name);
+                    Directory.CreateDirectory(Path.GetDirectoryName(path));
+                    using (Stream source = archive.GetInputStream(entry))
+                    using (FileStream destination = File.Create(path))
+                        StreamUtils.Copy(source, destination, buffer);
                     yield return null;
                 }
-                if (zf != null)
-                {
-                    zf.IsStreamOwner = true;
-                    zf.Close();
-                }
+            }
+            finally
+            {
+                extracting = false;
             }
         }
 

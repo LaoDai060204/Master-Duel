@@ -7,6 +7,7 @@ namespace MDPro3
         public Texture2D texture;
         public bool notDelete;
         public bool loaded;
+        public bool invalidated;
         public int referenceCount;
 
         public void AddReference()

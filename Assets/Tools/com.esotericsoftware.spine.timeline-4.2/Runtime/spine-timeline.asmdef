@@ -3,7 +3,8 @@
     "references": [
         "spine-unity",
         "spine-csharp",
-        "Unity.Timeline"
+        "Unity.Timeline",
+        "UnityEngine.UI"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [],

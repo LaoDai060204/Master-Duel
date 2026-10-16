@@ -2,7 +2,8 @@
     "name": "spine-unity-editor",
     "references": [
         "spine-csharp",
-        "spine-unity"
+        "spine-unity",
+        "UnityEngine.UI"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [

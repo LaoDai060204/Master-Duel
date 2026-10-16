@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
+using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -23,7 +24,7 @@ namespace MDPro3
         private static readonly ConcurrentDictionary<int, TextureData> _cachedCards = new();
 
         public const int MAX_LOADING_THREADS = 16;
-        private static readonly ConcurrentDictionary<int, Task<Texture2D>> _loadingCoroutines = new();
+        private static readonly SemaphoreSlim _loadingSlots = new(MAX_LOADING_THREADS, MAX_LOADING_THREADS);
 
         private void Awake()
         {
@@ -32,251 +33,249 @@ namespace MDPro3
 
         public static async Task<Texture2D> LoadPicFromFileAsync(string path)
         {
-            if (!File.Exists(path))
+            if (!Application.isPlaying || !File.Exists(path))
                 return null;
 
-            int threadIndex = 0;
-            while(!_loadingCoroutines.TryAdd(threadIndex, null))
+            try
             {
-                threadIndex++;
-                if(threadIndex == MAX_LOADING_THREADS)
-                {
-                    await TaskUtility.WaitOneFrame();
-                    threadIndex = 0;
-                }
+                await _loadingSlots.WaitAsync(Application.exitCancellationToken);
+            }
+            catch (OperationCanceledException) when (!Application.isPlaying)
+            {
+                return null;
             }
 
-            string fullPath;
-#if !UNITY_EDITOR && UNITY_ANDROID
-            fullPath = "file://" + Application.persistentDataPath + Program.slash + path;
-#else
-            fullPath = Environment.CurrentDirectory + Program.slash + path;
-#endif
-            using var request = UnityWebRequestTexture.GetTexture(fullPath);
-            var send = request.SendWebRequest();
-            await TaskUtility.WaitUntil(() => send.isDone);
-            if (!Application.isPlaying)
-                return null;
-
-            _loadingCoroutines.TryRemove(threadIndex, out _);
-
-            if (request.result == UnityWebRequest.Result.Success)
-                return DownloadHandlerTexture.GetContent(request);
-            else
+            try
             {
-                Debug.LogWarningFormat("Pic File [{0}] not fount.", path);
+                if (!Application.isPlaying)
+                    return null;
+
+                var fullPath = new Uri(Path.GetFullPath(path)).AbsoluteUri;
+                using var request = UnityWebRequestTexture.GetTexture(fullPath);
+                var send = request.SendWebRequest();
+                await TaskUtility.WaitUntil(() => send.isDone);
+                if (!Application.isPlaying)
+                    return null;
+
+                if (request.result == UnityWebRequest.Result.Success)
+                    return DownloadHandlerTexture.GetContent(request);
+
+                Debug.LogWarningFormat("Pic File [{0}] could not be loaded: {1}", path, request.error);
                 return null;
             }
+            finally
+            {
+                _loadingSlots.Release();
+            }
+        }
+
+        private static TextureData AcquireTexture(ConcurrentDictionary<int, TextureData> cache, int code,
+            bool keep, out bool ownsLoad)
+        {
+            var newData = new TextureData { notDelete = keep, referenceCount = 1 };
+            var data = cache.GetOrAdd(code, newData);
+            ownsLoad = ReferenceEquals(data, newData);
+            if (!ownsLoad)
+            {
+                data.AddReference();
+                data.notDelete |= keep;
+            }
+            return data;
+        }
+
+        private static bool CanUseTexture(TextureData data) => Application.isPlaying && !data.invalidated
+            && (data.referenceCount > 0 || data.notDelete);
+
+        private static Texture2D GetTexture(TextureData data, Texture2D fallback) => CanUseTexture(data)
+            ? data.texture != null ? data.texture : fallback
+            : null;
+
+        private static void RemoveTexture(ConcurrentDictionary<int, TextureData> cache, int code, TextureData data)
+        {
+            // Remove only this acquisition; a cache reset may already have installed a new entry.
+            ((ICollection<KeyValuePair<int, TextureData>>)cache).Remove(new KeyValuePair<int, TextureData>(code, data));
+            data.invalidated = true;
+            Destroy(data.texture);
+            data.texture = null;
+        }
+
+        private static void FinishTexture(ConcurrentDictionary<int, TextureData> cache, int code, TextureData data)
+        {
+            data.loaded = true;
+            if (!CanUseTexture(data))
+                RemoveTexture(cache, code, data);
+        }
+
+        private static void ReleaseTexture(ConcurrentDictionary<int, TextureData> cache, int code, TextureData data)
+        {
+            data.Delete();
+            // An unfinished owner still owns its result and will dispose it in FinishTexture.
+            if (data.loaded && !CanUseTexture(data))
+                RemoveTexture(cache, code, data);
         }
 
         public static async Task<Texture2D> LoadArtAsync(int code, bool cache)
         {
             await TaskUtility.WaitWhile(() => TextureManager.container == null);
+            if (!Application.isPlaying)
+                return null;
 
-            if (_cachedArts.TryGetValue(code, out var textureData))
+            var textureData = AcquireTexture(_cachedArts, code, cache, out var ownsLoad);
+            return await LoadArtAsync(code, textureData, ownsLoad);
+        }
+
+        private static async Task<Texture2D> LoadArtAsync(int code, TextureData textureData, bool ownsLoad)
+        {
+            if (!ownsLoad)
             {
-                await TaskUtility.WaitUntil(() => textureData.loaded);
-                textureData.AddReference();
-                if(cache)
-                    textureData.notDelete = cache;
-                if (textureData.texture == null)
-                    return TextureManager.container.unknownArt.texture;
-                else
-                    return textureData.texture;
+                await TaskUtility.WaitUntil(() => textureData.loaded || textureData.invalidated);
+                return GetTexture(textureData, TextureManager.container.unknownArt.texture);
             }
 
-            textureData = new TextureData() 
+            try
             {
-                texture = null,
-                loaded = false,
-                notDelete = cache,
-                referenceCount = 1,
-            };
-            _cachedArts.TryAdd(code, textureData);
-
-            if (!Directory.Exists(Program.artPath))
                 Directory.CreateDirectory(Program.artPath);
-            if (!Directory.Exists(Program.altArtPath))
                 Directory.CreateDirectory(Program.altArtPath);
+                var path = Program.altArtPath + code;
 
-            var path = Program.altArtPath + code;
-
-            if (File.Exists(path + Program.jpgExpansion))
-                path += Program.jpgExpansion;
-            else if (File.Exists(path + Program.pngExpansion))
-                path += Program.pngExpansion;
-            else if (File.Exists(Program.artPath + code.ToString() + Program.jpgExpansion))
-                path = Program.artPath + Program.slash + code.ToString() + Program.jpgExpansion;
-            else
-            {
-                Task<Texture2D> loadTask;
-                loadTask = LoadArtFromZipArt(code);
-                await TaskUtility.WaitUntil(() => loadTask.IsCompleted);
-                if (loadTask.Result == null)
+                if (File.Exists(path + Program.jpgExpansion))
+                    path += Program.jpgExpansion;
+                else if (File.Exists(path + Program.pngExpansion))
+                    path += Program.pngExpansion;
+                else if (File.Exists(Program.artPath + code + Program.jpgExpansion))
+                    path = Program.artPath + Program.slash + code + Program.jpgExpansion;
+                else
                 {
-                    loadTask = LoadArtFromZipPics(code);
-                    await TaskUtility.WaitUntil(() => loadTask.IsCompleted);
+                    textureData.texture = await LoadArtFromZipArt(code);
+                    if (textureData.texture == null && CanUseTexture(textureData))
+                        textureData.texture = await LoadArtFromZipPics(code);
+                    return GetTexture(textureData, TextureManager.container.unknownArt.texture);
                 }
 
-                textureData.texture = loadTask.Result;
-                textureData.loaded = true;
-                if (loadTask.Result == null)
-                    return TextureManager.container.unknownArt.texture;
-                else
-                    return loadTask.Result;
+                textureData.texture = await LoadPicFromFileAsync(path);
+                return GetTexture(textureData, TextureManager.container.unknownArt.texture);
             }
-
-            var task = LoadPicFromFileAsync(path);
-            await TaskUtility.WaitUntil(() => task.IsCompleted);
-
-            textureData.texture = task.Result;
-            textureData.loaded = true;
-            if (task.Result != null)
-                return task.Result;
-            else
-                return TextureManager.container.unknownArt.texture;
+            catch
+            {
+                // Wake existing waiters, but allow later requests to retry a failed load.
+                RemoveTexture(_cachedArts, code, textureData);
+                throw;
+            }
+            finally
+            {
+                FinishTexture(_cachedArts, code, textureData);
+            }
         }
 
         public static async Task<Texture2D> LoadCardAsync(int code, bool cache = false)
         {
             await TaskUtility.WaitWhile(() => TextureManager.container == null);
+            if (!Application.isPlaying)
+                return null;
 
-            if (_cachedCards.TryGetValue(code, out var textureData))
+            var textureData = AcquireTexture(_cachedCards, code, cache, out var ownsLoad);
+            if (!ownsLoad)
             {
-                await TaskUtility.WaitUntil(() => textureData.loaded);
-                textureData.AddReference();
-                if (cache)
-                    textureData.notDelete = cache;
-                if (textureData.texture == null)
-                    return TextureManager.container.unknownCard.texture;
-                else
-                    return textureData.texture;
+                await TaskUtility.WaitUntil(() => textureData.loaded || textureData.invalidated);
+                return GetTexture(textureData, TextureManager.container.unknownCard.texture);
             }
 
-            textureData = new TextureData()
+            TextureData artData = null;
+            try
             {
-                texture = null,
-                loaded = false,
-                notDelete = cache,
-                referenceCount = 1,
-            };
-            _cachedCards.TryAdd(code, textureData);
+                var data = CardsManager.Get(code, true);
+                if (data.Id == 0)
+                    return TextureManager.container.unknownCard.texture;
 
-            var data = CardsManager.Get(code, true);
-            if (data.Id == 0)
-                return TextureManager.container.unknownCard.texture;
+                artData = AcquireTexture(_cachedArts, code, false, out var ownsArtLoad);
+                var art = await LoadArtAsync(code, artData, ownsArtLoad);
+                if (!CanUseTexture(textureData))
+                    return null;
+                if (!Program.instance.cardRenderer.RenderCard(code, art))
+                    return TextureManager.container.unknownCard.texture;
 
-            var task = LoadArtAsync(code, false);
-            await TaskUtility.WaitUntil(() => task.IsCompleted);
-
-            if (!Program.instance.cardRenderer.RenderCard(code, task.Result))
-                return TextureManager.container.unknownCard.texture;
-            var returnValue = new Texture2D(RenderTexture.active.width, RenderTexture.active.height, TextureFormat.RGB24, true);
-            returnValue.ReadPixels(new Rect(0, 0, RenderTexture.active.width, RenderTexture.active.height), 0, 0);
-            returnValue.Apply();
-            returnValue.name = "Card_" + code;
-            await TaskUtility.WaitOneFrame();
-
-            textureData.texture = returnValue;
-            textureData.loaded = true;
-
-            DeleteArt(code);
-            return returnValue;
-        }
-
-        private static void DeleteArt(int code)
-        {
-            if(_cachedArts.TryGetValue(code, out var art))
-                if (art.Delete())
-                {
-                    _cachedArts.TryRemove(code, out _);
-                    DestroyImmediate(art.texture);
-                }
+                textureData.texture = new Texture2D(RenderTexture.active.width, RenderTexture.active.height, TextureFormat.RGB24, true);
+                textureData.texture.ReadPixels(new Rect(0, 0, RenderTexture.active.width, RenderTexture.active.height), 0, 0);
+                textureData.texture.Apply();
+                textureData.texture.name = "Card_" + code;
+                await TaskUtility.WaitOneFrame();
+                return GetTexture(textureData, TextureManager.container.unknownCard.texture);
+            }
+            catch
+            {
+                RemoveTexture(_cachedCards, code, textureData);
+                throw;
+            }
+            finally
+            {
+                FinishTexture(_cachedCards, code, textureData);
+                if (artData != null)
+                    ReleaseTexture(_cachedArts, code, artData);
+            }
         }
 
         public static void DeleteCard(int code)
         {
             if (_cachedCards.TryGetValue(code, out var card))
-                if (card.Delete())
-                {
-                    _cachedCards.TryRemove(code, out _);
-                    DestroyImmediate(card.texture);
-                }
+                ReleaseTexture(_cachedCards, code, card);
         }
 
         public static void DeleteCache()
         {
-            foreach(var art in  _cachedArts.Values)
-                Destroy(art.texture);
-            foreach (var card in _cachedCards.Values)
-                Destroy(card.texture);
-            _cachedArts.Clear();
-            _cachedCards.Clear();
+            foreach (var art in _cachedArts)
+                RemoveTexture(_cachedArts, art.Key, art.Value);
+            foreach (var card in _cachedCards)
+                RemoveTexture(_cachedCards, card.Key, card.Value);
         }
 
-        private static async Task<Texture2D> LoadArtFromZipArt(int code)
+        private static Task<Texture2D> LoadArtFromZipArt(int code) => LoadArtFromZip(code, false);
+
+        private static Task<Texture2D> LoadArtFromZipPics(int code) => LoadArtFromZip(code, true);
+
+        private static async Task<Texture2D> LoadArtFromZip(int code, bool fullCard)
         {
-            Texture2D returnValue = new Texture2D(0, 0);
             foreach (var zip in ZipHelper.zips)
             {
-                if (zip.Name.ToLower().EndsWith("script.zip"))
+                if (zip.Name.EndsWith("script.zip", StringComparison.OrdinalIgnoreCase))
                     continue;
                 foreach (var file in zip.EntryFileNames)
                 {
-                    foreach (var extName in new[] { Program.pngExpansion, Program.jpgExpansion })
+                    foreach (var extension in new[] { Program.pngExpansion, Program.jpgExpansion })
                     {
-                        var picPath = $"art/{code}{extName}";
-                        if (file.ToLower() == picPath)
-                        {
-                            MemoryStream stream = new();
-                            var entry = zip[picPath];
-                            entry.Extract(stream);
-                            await TaskUtility.WaitOneFrame();
-                            returnValue.LoadImage(stream.ToArray());
-                            return returnValue;
-                        }
-                    }
-                }
-            }
-            return null;
-        }
+                        var picPath = $"{(fullCard ? "pics" : "art")}/{code}{extension}";
+                        if (!string.Equals(file, picPath, StringComparison.OrdinalIgnoreCase))
+                            continue;
 
-        private static async Task<Texture2D> LoadArtFromZipPics(int code)
-        {
-            Texture2D returnValue = new Texture2D(0, 0);
-            foreach (var zip in ZipHelper.zips)
-            {
-                if (zip.Name.ToLower().EndsWith("script.zip"))
-                    continue;
-                foreach (var file in zip.EntryFileNames)
-                {
-                    foreach (var extName in new[] { Program.pngExpansion, Program.jpgExpansion })
-                    {
-                        var picPath = $"pics/{code}{extName}";
-                        if (file.ToLower() == picPath)
-                        {
-                            var data = CardsManager.Get(code);
-                            MemoryStream stream = new MemoryStream();
-                            var entry = zip[picPath];
-                            entry.Extract(stream);
-                            await TaskUtility.WaitOneFrame();
+                        using var stream = new MemoryStream();
+                        zip[file].Extract(stream);
+                        await TaskUtility.WaitOneFrame();
+                        if (!Application.isPlaying)
+                            return null;
 
-                            returnValue.LoadImage(stream.ToArray());
-                            Task<Texture2D> task;
-                            if (code >= 120000000 && code < 130000000)
+                        var texture = new Texture2D(2, 2);
+                        try
+                        {
+                            if (!texture.LoadImage(stream.ToArray()))
+                                return null;
+                            if (!fullCard)
                             {
-                                if (data.HasType(CardType.Monster))
-                                    task = GetArtFromRushDuelMonsterCard(returnValue);
-                                else
-                                    task = GetArtFromRushDuelSpellCard(returnValue);
+                                var art = texture;
+                                texture = null;
+                                return art;
                             }
-                            else if (data.HasType(CardType.Pendulum))
-                                task = GetArtFromPendulumCard(returnValue);
-                            else
-                                task = GetArtFromCard(returnValue);
 
-                            await TaskUtility.WaitUntil(() => task.IsCompleted);
-                            return task.Result;
+                            var data = CardsManager.Get(code);
+                            if (code >= 120000000 && code < 130000000)
+                                return data.HasType(CardType.Monster)
+                                    ? await GetArtFromRushDuelMonsterCard(texture)
+                                    : await GetArtFromRushDuelSpellCard(texture);
+                            return data.HasType(CardType.Pendulum)
+                                ? await GetArtFromPendulumCard(texture)
+                                : await GetArtFromCard(texture);
+                        }
+                        finally
+                        {
+                            Destroy(texture);
                         }
                     }
                 }
@@ -310,10 +309,7 @@ namespace MDPro3
             var startY = Mathf.CeilToInt(cardPic.height * 0.3f);
             var width = Mathf.CeilToInt(cardPic.width * 0.87f);
             var height = Mathf.CeilToInt(cardPic.height * 0.81f);
-            var task = GetCroppingTex(cardPic, startX, startY, width, height);
-            while (!task.IsCompleted)
-                await TaskUtility.WaitOneFrame();
-            return task.Result;
+            return await GetCroppingTex(cardPic, startX, startY, width, height);
         }
         private static async Task<Texture2D> GetArtFromPendulumCard(Texture2D cardPic)
         {
@@ -321,10 +317,7 @@ namespace MDPro3
             var startY = Mathf.CeilToInt(cardPic.height * 0.38f);
             var width = Mathf.CeilToInt(cardPic.width * 0.933f);
             var height = Mathf.CeilToInt(cardPic.height * 0.81f);
-            var task = GetCroppingTex(cardPic, startX, startY, width, height);
-            while (!task.IsCompleted)
-                await TaskUtility.WaitOneFrame();
-            return task.Result;
+            return await GetCroppingTex(cardPic, startX, startY, width, height);
         }
         private static async Task<Texture2D> GetArtFromRushDuelMonsterCard(Texture2D cardPic)
         {
@@ -332,10 +325,7 @@ namespace MDPro3
             var startY = Mathf.CeilToInt(cardPic.height * 0.29f);
             var width = Mathf.CeilToInt(cardPic.width * 0.933f);
             var height = Mathf.CeilToInt(cardPic.height * 0.90f);
-            var task = GetCroppingTex(cardPic, startX, startY, width, height);
-            while (!task.IsCompleted)
-                await TaskUtility.WaitOneFrame();
-            return task.Result;
+            return await GetCroppingTex(cardPic, startX, startY, width, height);
         }
         private static async Task<Texture2D> GetArtFromRushDuelSpellCard(Texture2D cardPic)
         {
@@ -343,10 +333,7 @@ namespace MDPro3
             var startY = Mathf.CeilToInt(cardPic.height * 0.29f);
             var width = Mathf.CeilToInt(cardPic.width * 0.933f);
             var height = Mathf.CeilToInt(cardPic.height * 0.90f);
-            var task = GetCroppingTex(cardPic, startX, startY, width, height);
-            while (!task.IsCompleted)
-                await TaskUtility.WaitOneFrame();
-            return task.Result;
+            return await GetCroppingTex(cardPic, startX, startY, width, height);
         }
         private static async Task<Texture2D> GetCroppingTex(Texture2D texture, int startX, int startY, int width, int height)
         {

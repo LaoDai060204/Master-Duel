@@ -5,11 +5,17 @@ dotnet run --project Tools/Tests/StartupRegression/StartupRegression.csproj
 ```
 
 The project stages a UTF-8 copy of the original GB18030 `Boot.cs` under ignored
-`obj/`; it never changes the source file. It uses no external packages.
+`obj/`; it never changes the source file. It uses the repository's shipped
+SharpZipLib DLL and needs no package downloads.
 
-Three checks exercise the real startup logic with temporary files and a small
-coroutine scheduler: rejecting an update APK preserves fresh configuration and
-existing data, and ZIP extraction yields between entries while the installer
-waits for completion. Unity and ZIP dependencies use minimal stand-ins. These
-checks supplement an Android/Unity smoke test; they do not validate Addressables,
-Unity's scheduler, or the shipped ZIP library.
+Thirteen checks exercise the real startup iterators with temporary files, the real
+ZIP implementation, and a small coroutine scheduler. They cover preserving data
+when rejecting update APKs, waiting between extraction frames, failed reads and
+corrupt archives, valid ./ archive directory entries, ZIP destination containment, obsolete Android cleanup, and
+stopping dependent Addressables loads after initialization/asset/scene failures.
+
+Unity requests and Addressables handles use deterministic stand-ins. The scheduler
+models Unity stopping a failed child coroutine so the tests can detect an
+incorrectly saved install marker. These checks supplement an Android/Unity smoke
+test; they do not validate Unity's scheduler, package resolution, real remote
+requests, or Addressables content builds.

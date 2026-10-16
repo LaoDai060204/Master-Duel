@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <OnlineDeckSource Condition="'$(OnlineDeckSource)' == ''">../../../Assets/Scripts/MDPro3/Net/OnlineDeck.cs</OnlineDeckSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="obj/OnlineDeck.utf8.cs" Link="OnlineDeck.cs" />
+    <Compile Include="../../../Assets/Scripts/MDPro3/Duel/MDPro3.YGOSharp/Deck.cs" Link="Deck.cs" />
+  </ItemGroup>
+  <Target Name="PrepareOnlineDeckSource" BeforeTargets="CoreCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/prepare_source.py&quot; &quot;$(OnlineDeckSource)&quot;" />
+  </Target>
+</Project>

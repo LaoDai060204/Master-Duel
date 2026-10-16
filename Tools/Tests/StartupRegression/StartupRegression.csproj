@@ -6,8 +6,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="obj/Boot.utf8.cs" Link="Boot.cs" />
+    <Compile Include="../../../Assets/Scripts/MDPro3/Utility/ArchivePath.cs" Link="ArchivePath.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="UnityStubs.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="ICSharpCode.SharpZipLib">
+      <HintPath>../../../Assets/Plugins/SharpZipLib/ICSharpCode.SharpZipLib.dll</HintPath>
+    </Reference>
   </ItemGroup>
   <Target Name="PrepareBootSource" BeforeTargets="CoreCompile">
     <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/prepare_source.py&quot;" />

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <MyCardSource Condition="'$(MyCardSource)' == ''">../../../Assets/Scripts/MDPro3/Net/MyCard.cs</MyCardSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="obj/MyCard.utf8.cs" Link="MyCard.cs" />
+    <Compile Include="../../../Assets/Scripts/MDPro3/Utility/TaskUtility.cs" Link="TaskUtility.cs" />
+    <Compile Include="Program.cs" />
+    <Compile Include="UnityStubs.cs" />
+    <!-- Use the SDK's JSON implementation without downloading packages. -->
+    <Reference Include="Newtonsoft.Json" HintPath="$(MSBuildSDKsPath)/../Newtonsoft.Json.dll" />
+  </ItemGroup>
+  <Target Name="PrepareMyCardSource" BeforeTargets="CoreCompile">
+    <Exec Command="python3 &quot;$(MSBuildProjectDirectory)/prepare_source.py&quot; &quot;$(MyCardSource)&quot;" />
+  </Target>
+</Project>

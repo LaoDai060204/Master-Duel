@@ -118,7 +118,12 @@ namespace MDPro3
             var json = File.ReadAllText(JsonPath);
             try
             {
-                _data = EnsureDefaultValues(json);
+                // Constructor defaults cover missing fields; ignore null overrides.
+                // Reading an existing file must not discard extension fields or formatting.
+                _data = JsonConvert.DeserializeObject<SettingData>(json, new JsonSerializerSettings
+                {
+                    NullValueHandling = NullValueHandling.Ignore
+                }) ?? new SettingData();
             }
             catch(JsonException ex)
             {
@@ -134,84 +139,5 @@ namespace MDPro3
             File.WriteAllText(JsonPath, json);
         }
 
-        private static SettingData EnsureDefaultValues(string json)
-        {
-            var data = JsonConvert.DeserializeObject<SettingData>(json, new JsonSerializerSettings
-            {
-                NullValueHandling = NullValueHandling.Ignore
-            }) ?? new SettingData();
-            var defau = new SettingData();
-            bool needOverwrite = false;
-
-            if (!json.Contains("FinalAttackBlueEyes"))
-            {
-                data.FinalAttackBlueEyes = defau.FinalAttackBlueEyes;
-                needOverwrite = true;
-            }
-            if (!json.Contains("FinalAttackDarkM"))
-            {
-                data.FinalAttackDarkM = defau.FinalAttackDarkM;
-                needOverwrite = true;
-            }
-            if (!json.Contains("FinalAttackRedEyes"))
-            {
-                data.FinalAttackRedEyes = defau.FinalAttackRedEyes;
-                needOverwrite = true;
-            }
-            if (!json.Contains("FinalAttackObelisk"))
-            {
-                data.FinalAttackObelisk = defau.FinalAttackObelisk;
-                needOverwrite = true;
-            }
-            if (!json.Contains("FinalAttackRa"))
-            {
-                data.FinalAttackRa = defau.FinalAttackRa;
-                needOverwrite = true;
-            }
-            if (!json.Contains("FinalAttackSlifer"))
-            {
-                data.FinalAttackSlifer = defau.FinalAttackSlifer;
-                needOverwrite = true;
-            }
-            if (!json.Contains("PrereleasePackUrl"))
-            {
-                data.PrereleasePackUrl = defau.PrereleasePackUrl;
-                needOverwrite = true;
-            }
-            if (!json.Contains("PrereleasePackVersionUrl"))
-            {
-                data.PrereleasePackVersionUrl = defau.PrereleasePackVersionUrl;
-                needOverwrite = true;
-            }
-            if (!json.Contains("CardRenderPassword"))
-            {
-                data.CardRenderPassword = defau.CardRenderPassword;
-                needOverwrite = true;
-            }
-            if (!json.Contains("SavedCardSize"))
-            {
-                data.SavedCardSize = defau.SavedCardSize;
-                needOverwrite = true;
-            }
-            if (!json.Contains("SavedCardFormat"))
-            {
-                data.SavedCardFormat = defau.SavedCardFormat;
-                needOverwrite = true;
-            }
-            if (!json.Contains("BatchMove"))
-            {
-                data.BatchMove = defau.BatchMove;
-                needOverwrite = true;
-            }
-            if (!json.Contains("DiySymbol"))
-            {
-                data.DiySymbol = defau.DiySymbol;
-                needOverwrite = true;
-            }
-            if (needOverwrite)
-                SaveSettings(data);
-
-            return data;
-        }
     }
 }

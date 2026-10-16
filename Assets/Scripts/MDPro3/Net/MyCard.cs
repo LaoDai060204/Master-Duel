@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using Newtonsoft.Json;
 using System.Text;
+using System.Security.Cryptography;
 using System.Collections.Generic;
 using UnityWebSocket;
 using Newtonsoft.Json.Linq;
@@ -37,7 +38,7 @@ namespace MDPro3.Net
 
         public static async Task<MyCardAccount> Login(string account, string password)
         {
-            string json = "{\"account\":\"" + account + "\",\"password\":\"" + password + "\"}";
+            string json = JsonConvert.SerializeObject(new { account, password });
             using var request = UnityWebRequest.Post(loginUrl, json, jsonHeader);
 
             request.SetRequestHeader("Content-Type", jsonHeader);
@@ -53,8 +54,7 @@ namespace MDPro3.Net
             {
                 MyCard.account = JsonUtility.FromJson<MyCardAccount>(request.downloadHandler.text);
 
-                var response = OnlineDeck.GetAllDecks();
-                await TaskUtility.WaitUntil(() => response.IsCompleted);
+                await OnlineDeck.GetAllDecks();
                 if (!Application.isPlaying)
                     return null;
 
@@ -62,10 +62,7 @@ namespace MDPro3.Net
             }
             else
             {
-                var returnValue = new MyCardAccount();
-                returnValue.user = new MyCardUserInfo();
-                returnValue.user.username = JsonUtility.FromJson<MyCardMessage>(request.downloadHandler.text).message;
-                return returnValue;
+                return CreateFailedAccount(request.downloadHandler?.text);
             }
         }
 
@@ -86,9 +83,7 @@ namespace MDPro3.Net
                 account.user = user;
                 account.token = token;
 
-                var response =  OnlineDeck.GetAllDecks();
-                await response;
-                await TaskUtility.WaitUntil(() => response.IsCompleted);
+                await OnlineDeck.GetAllDecks();
                 if (!Application.isPlaying)
                     return null;
 
@@ -96,62 +91,76 @@ namespace MDPro3.Net
             }
             else
             {
-                var returnValue = new MyCardAccount();
-                returnValue.user = new MyCardUserInfo();
-                var message = JsonUtility.FromJson<MyCardMessage>(request.downloadHandler.text);
-                if (message != null)
-                    returnValue.user.username = JsonUtility.FromJson<MyCardMessage>(request.downloadHandler.text).message;
-                else
-                    returnValue.user.username = InterString.Get("请检查网络连接");
-                return returnValue;
+                return CreateFailedAccount(request.downloadHandler?.text);
             }
         }
 
-        const string avatarSavePath = "Picture/MyCardAvatars/";
-        static Dictionary<string, string> cachedAvatarAddress = new Dictionary<string, string>();
-        static Dictionary<string, Texture2D> cachedAvatars = new Dictionary<string, Texture2D>();
-        public static async Task<Texture2D> GetAvatarAsync(string userName)
+        private static MyCardAccount CreateFailedAccount(string responseBody)
         {
-            if(!Directory.Exists(avatarSavePath))
-                Directory.CreateDirectory(avatarSavePath);
-
-            string fullPath = string.Empty;
-            string avatarName = string.Empty;
-            bool cached = false;
-            lock (cachedAvatarAddress)
+            string message = null;
+            if (!string.IsNullOrWhiteSpace(responseBody))
             {
-                if (cachedAvatarAddress.TryGetValue(userName, out avatarName))
+                try
                 {
-                    fullPath = avatarSavePath + avatarName + Program.pngExpansion;
-                    cached = true;
+                    message = JsonConvert.DeserializeObject<MyCardMessage>(responseBody)?.message;
+                }
+                catch (JsonException)
+                {
+                    // Proxies and offline servers may return HTML instead of the API's JSON error.
                 }
             }
 
-            if (cached)
+            return new MyCardAccount
+            {
+                user = new MyCardUserInfo
+                {
+                    username = string.IsNullOrWhiteSpace(message)
+                        ? InterString.Get("请检查网络连接") : message
+                }
+            };
+        }
+
+        const string avatarSavePath = "Picture/MyCardAvatars/";
+        static readonly Dictionary<string, string> cachedAvatarAddress = new Dictionary<string, string>();
+        static readonly Dictionary<string, Texture2D> cachedAvatars = new Dictionary<string, Texture2D>();
+        public static async Task<Texture2D> GetAvatarAsync(string userName)
+        {
+            if (string.IsNullOrWhiteSpace(userName))
+                return null;
+
+            string avatarName;
+            lock (cachedAvatarAddress)
+                cachedAvatarAddress.TryGetValue(userName, out avatarName);
+
+            if (avatarName != null)
             {
                 lock (cachedAvatars)
-                    if (cachedAvatars.ContainsKey(avatarName))
-                        return cachedAvatars[avatarName];
+                    if (cachedAvatars.TryGetValue(avatarName, out var texture) && texture != null)
+                        return texture;
 
-                var load = TextureManager.LoadPicFromFileAsync(fullPath);
-                await TaskUtility.WaitUntil(() => load.IsCompleted);
-                if(!Application.isPlaying)
+                var loadedImage = await TextureManager.LoadPicFromFileAsync(
+                    Path.Combine(avatarSavePath, avatarName + Program.pngExpansion));
+                if (!Application.isPlaying)
+                {
+                    UnityEngine.Object.Destroy(loadedImage);
                     return null;
+                }
 
-                lock (cachedAvatars)
-                    if (!cachedAvatars.ContainsKey(avatarName))
-                        cachedAvatars[avatarName] = load.Result;
-                return load.Result;
+                if (loadedImage != null)
+                    return CacheAvatar(userName, avatarName, loadedImage);
+                // A missing or unreadable disk cache must not prevent downloading the avatar again.
             }
 
             string avatarAddress;
-
-            using(var request = UnityWebRequest.Get(userUrl.Replace("{username}", userName)))
+            using (var request = UnityWebRequest.Get(userUrl.Replace("{username}", Uri.EscapeDataString(userName))))
             {
                 await request.SendWebRequest();
+                if (!Application.isPlaying)
+                    return null;
+
                 if (request.result == UnityWebRequest.Result.Success)
                 {
-                    avatarAddress = JsonUtility.FromJson<MyCardRoomUserInfo>(request.downloadHandler.text).user.avatar;
+                    avatarAddress = JsonUtility.FromJson<MyCardRoomUserInfo>(request.downloadHandler.text)?.user?.avatar;
                 }
                 else
                 {
@@ -160,41 +169,69 @@ namespace MDPro3.Net
                 }
             }
 
-            var requestAvatar = Tools.DownloadImageAsync(avatarAddress);
-            await requestAvatar;
-            Texture2D downloadImage = requestAvatar.Result;
+            if (string.IsNullOrWhiteSpace(avatarAddress))
+                return null;
+
+            // The full URL distinguishes avatar.png files belonging to different users or versions.
+            using (var hash = SHA256.Create())
+                avatarName = BitConverter.ToString(hash.ComputeHash(Encoding.UTF8.GetBytes(avatarAddress)))
+                    .Replace("-", string.Empty).ToLowerInvariant();
+
+            lock (cachedAvatars)
+                if (cachedAvatars.TryGetValue(avatarName, out var texture) && texture != null)
+                {
+                    lock (cachedAvatarAddress)
+                        cachedAvatarAddress[userName] = avatarName;
+                    return texture;
+                }
+
+            var downloadImage = await Tools.DownloadImageAsync(avatarAddress);
+            if (!Application.isPlaying)
+            {
+                UnityEngine.Object.Destroy(downloadImage);
+                return null;
+            }
             if (downloadImage == null)
                 return null;
 
-            var returnValue = downloadImage;
+            // ResizeTexture2D already destroys its source texture.
+            var avatarTexture = downloadImage.width > avatarSize || downloadImage.height > avatarSize
+                ? TextureManager.ResizeTexture2D(downloadImage, avatarSize, avatarSize) : downloadImage;
+            avatarTexture = CacheAvatar(userName, avatarName, avatarTexture);
+
             try
             {
-                if(downloadImage != null)
-                {
-                    var fileName = Path.GetFileNameWithoutExtension(avatarAddress);
-                    fullPath = avatarSavePath + fileName + Program.pngExpansion;
-                    if(downloadImage.width > avatarSize)
-                    {
-                        returnValue = TextureManager.ResizeTexture2D(downloadImage, avatarSize, avatarSize);
-                        UnityEngine.Object.Destroy(downloadImage);
-                    }
-
-                    File.WriteAllBytes(fullPath, returnValue.EncodeToPNG());
-                    lock (cachedAvatarAddress)
-                    {
-                        if (!cachedAvatarAddress.ContainsKey(userName))
-                            cachedAvatarAddress[userName] = fileName;
-                    }
-                    lock(cachedAvatars)
-                    {
-                        if (!cachedAvatars.ContainsKey(avatarName))
-                            cachedAvatars[avatarName] = returnValue;
-                    }
-                }
+                Directory.CreateDirectory(avatarSavePath);
+                File.WriteAllBytes(Path.Combine(avatarSavePath, avatarName + Program.pngExpansion), avatarTexture.EncodeToPNG());
             }
-            catch { }
+            catch (IOException exception)
+            {
+                Debug.LogWarning($"Could not save MyCard avatar cache: {exception.Message}");
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                Debug.LogWarning($"Could not save MyCard avatar cache: {exception.Message}");
+            }
 
-            return returnValue;
+            return avatarTexture;
+        }
+
+        private static Texture2D CacheAvatar(string userName, string avatarName, Texture2D texture)
+        {
+            lock (cachedAvatars)
+            {
+                if (cachedAvatars.TryGetValue(avatarName, out var existing) && existing != null)
+                {
+                    if (existing != texture)
+                        UnityEngine.Object.Destroy(texture);
+                    texture = existing;
+                }
+                else
+                    cachedAvatars[avatarName] = texture;
+            }
+            lock (cachedAvatarAddress)
+                cachedAvatarAddress[userName] = avatarName;
+            return texture;
         }
 
         public static async Task<MyCardNews> GetNews()
@@ -230,7 +267,7 @@ namespace MDPro3.Net
             if (account == null)
                 return null;
 
-            using var request = UnityWebRequest.Get(expUrl + $"{account.user.username}");
+            using var request = UnityWebRequest.Get(expUrl + Uri.EscapeDataString(account.user.username));
             var send = request.SendWebRequest();
             await TaskUtility.WaitUntil(() => send.isDone);
             if(!Application.isPlaying)
@@ -247,7 +284,7 @@ namespace MDPro3.Net
 
         public static async Task<MyCardMatchInfo> GetMatchInfo(string arena)
         {
-            using var request = UnityWebRequest.PostWwwForm(matchUrl + "?arena=" + arena, jsonHeader);
+            using var request = UnityWebRequest.PostWwwForm(matchUrl + "?arena=" + Uri.EscapeDataString(arena), jsonHeader);
             request.SetRequestHeader(contentTypeHeader, jsonHeader);
             request.SetRequestHeader(authHeader, "Basic " + CustomBase64Encode(account.user.username + ":" + account.user.id));
 

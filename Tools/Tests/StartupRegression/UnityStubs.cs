@@ -1,5 +1,5 @@
 // Minimal deterministic stand-ins for Boot's dependencies. These checks exercise
-// the real Boot.cs iterators and file operations; they do not replace Unity tests.
+// the real Boot.cs iterators, file operations and shipped SharpZipLib; they do not replace Unity tests.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -35,8 +35,17 @@ namespace UnityEngine
         {
             if (coroutine.Done || (coroutine.WaitingFor != null && !coroutine.WaitingFor.Done))
                 return;
-            coroutine.Done = !coroutine.Iterator.MoveNext();
-            coroutine.WaitingFor = coroutine.Done ? null : coroutine.Iterator.Current as Coroutine;
+            try
+            {
+                coroutine.Done = !coroutine.Iterator.MoveNext();
+                coroutine.WaitingFor = coroutine.Done ? null : coroutine.Iterator.Current as Coroutine;
+            }
+            catch (Exception error)
+            {
+                // Unity logs and stops a failed child; its parent can resume.
+                coroutine.Done = true;
+                Debug.LogException(error, null);
+            }
         }
         public static void Complete(Coroutine coroutine, int maxFrames)
         {
@@ -56,6 +65,11 @@ namespace UnityEngine
         public static string streamingAssetsPath;
         public static string version;
     }
+    public static class Debug
+    {
+        public static readonly List<Exception> Exceptions = new List<Exception>();
+        public static void LogException(Exception error, object context) => Exceptions.Add(error);
+    }
     public static class Time { public static float deltaTime; }
     public static class Mathf { public static float Clamp01(float value) => Math.Clamp(value, 0f, 1f); }
     public sealed class WWW
@@ -63,7 +77,7 @@ namespace UnityEngine
         public readonly byte[] bytes;
         public bool isDone => true;
         public float progress => 1f;
-        public WWW(string path) { bytes = File.ReadAllBytes(path); }
+        public WWW(string path) { bytes = File.Exists(path) ? File.ReadAllBytes(path) : null; }
     }
 }
 
@@ -73,58 +87,85 @@ namespace UnityEngine.UI
     public sealed class Text { public string text; }
 }
 
-namespace UnityEngine.ResourceManagement.ResourceProviders { }
+namespace UnityEngine.Networking
+{
+    public sealed class UnityWebRequest : IDisposable
+    {
+        public enum Result { Success, ConnectionError, ProtocolError }
+        public static int Disposed;
+        private readonly string path;
+        public int timeout;
+        public Result result;
+        public string error;
+        public float downloadProgress => 1f;
+        public DownloadHandler downloadHandler = new DownloadHandler();
+        private UnityWebRequest(string uri) { path = new Uri(uri).LocalPath; }
+        public static UnityWebRequest Get(string path) => new UnityWebRequest(path);
+        public DownloadOperation SendWebRequest()
+        {
+            try
+            {
+                downloadHandler.data = File.ReadAllBytes(path);
+                result = Result.Success;
+            }
+            catch (IOException exception)
+            {
+                result = Result.ConnectionError;
+                error = exception.Message;
+            }
+            return new DownloadOperation();
+        }
+        public void Dispose() => Disposed++;
+    }
+    public sealed class DownloadHandler { public byte[] data; }
+    public sealed class DownloadOperation { public bool isDone => true; }
+}
 
+namespace UnityEngine.ResourceManagement.ResourceProviders { }
+namespace UnityEngine.ResourceManagement.AsyncOperations
+{
+    public enum AsyncOperationStatus { None, Succeeded, Failed }
+}
 namespace UnityEngine.AddressableAssets
 {
+    using UnityEngine.ResourceManagement.AsyncOperations;
     public sealed class CompletedHandle<T>
     {
         public bool IsDone => true;
         public float PercentComplete => 1f;
-        public T Result => default;
+        public T Result;
+        public AsyncOperationStatus Status;
+        public Exception OperationException;
     }
     public static class Addressables
     {
-        public static CompletedHandle<object> InitializeAsync() => new CompletedHandle<object>();
-        public static CompletedHandle<T> LoadAssetAsync<T>(string name) => new CompletedHandle<T>();
-        public static CompletedHandle<object> LoadSceneAsync(string name) => new CompletedHandle<object>();
-    }
-}
-
-namespace ICSharpCode.SharpZipLib.Core
-{
-    public static class StreamUtils
-    {
-        public static void Copy(Stream source, Stream destination, byte[] buffer) => source.CopyTo(destination, buffer.Length);
-    }
-}
-
-namespace ICSharpCode.SharpZipLib.Zip
-{
-    public sealed class ZipEntry
-    {
-        internal readonly ZipArchiveEntry Entry;
-        internal ZipEntry(ZipArchiveEntry entry) { Entry = entry; }
-        public bool IsFile => !Entry.FullName.EndsWith("/");
-        public string Name => Entry.FullName;
-    }
-    public sealed class ZipFile : IEnumerable
-    {
-        private readonly ZipArchive archive;
-        public ZipFile(Stream stream) { archive = new ZipArchive(stream, ZipArchiveMode.Read, true); }
-        public bool IsStreamOwner { get; set; }
-        public Stream GetInputStream(ZipEntry entry) => entry.Entry.Open();
-        public IEnumerator GetEnumerator()
+        public static string FailureStage;
+        public static int ItemLoads;
+        public static int SceneLoads;
+        public static int Releases;
+        public static void Reset()
         {
-            foreach (ZipArchiveEntry entry in archive.Entries)
-                yield return new ZipEntry(entry);
+            FailureStage = null;
+            ItemLoads = SceneLoads = Releases = 0;
         }
-        public void Close() => archive.Dispose();
-    }
-    public sealed class FastZip
-    {
-        public string Password { get; set; }
-        public void ExtractZip(string path, string directory, string filter) => System.IO.Compression.ZipFile.ExtractToDirectory(path, directory);
+        private static CompletedHandle<T> Finish<T>(string stage, T result) => new CompletedHandle<T>
+        {
+            Result = FailureStage == stage ? default : result,
+            Status = FailureStage == stage ? AsyncOperationStatus.Failed : AsyncOperationStatus.Succeeded,
+            OperationException = FailureStage == stage ? new IOException(stage + " unavailable") : null
+        };
+        public static CompletedHandle<object> InitializeAsync(bool autoReleaseHandle = true) => Finish("initialize", new object());
+        public static CompletedHandle<T> LoadAssetAsync<T>(string name)
+        {
+            ItemLoads++;
+            return Finish("items", (T)(object)new MDPro3.Items());
+        }
+        public static CompletedHandle<object> LoadSceneAsync(string name)
+        {
+            SceneLoads++;
+            return Finish("scene", new object());
+        }
+        public static void Release<T>(CompletedHandle<T> handle) => Releases++;
     }
 }
 
